@@ -1,9 +1,9 @@
 """
 Theatrical Lav Solver & Microphone Allocation Optimizer
 Solves resource-constrained wireless microphone assignments and produces operational paperwork:
-  1. Master Sound Tracking Sheet (Matrix with 'X', '-', blank, and split shared rows)
-  2. Backstage Quick-Change & Handoff Cue Sheet (A2 / wardrobe dressing cue list)
-  3. Top-of-Show / Pre-Show Rigging Preset Sheet (Channels 1 to N pre-show call)
+  1. Master Sound Tracking Sheet (Matrix with 'X', '-', blank, split shared rows, odd/even mic striping)
+  2. Backstage Quick-Change & Handoff Cue Sheet (A2 / wardrobe cue list with Blue/Pink gender fills)
+  3. Top-of-Show / Pre-Show Rigging Preset Sheet (Separate 'Guys' and 'Girls' Excel tabs matching rack check-in layout)
 """
 
 import argparse
@@ -11,7 +11,9 @@ from collections import Counter, defaultdict
 import csv
 import json
 import math
+import os
 import random
+import re
 import sys
 
 try:
@@ -25,11 +27,141 @@ except ImportError:
 
 
 # -----------------------------------------------------------------------------
+# Gender Detection & Normalization Helpers
+# -----------------------------------------------------------------------------
+COMMON_MALE_FIRST_NAMES = {
+    "aaron", "adam", "alan", "albert", "alex", "alexander", "andrew", "anthony",
+    "arthur", "art", "austin", "ben", "benjamin", "billy", "bob", "bobby",
+    "brad", "brandon", "brian", "brighton", "bruce", "bryan", "caleb", "cameron",
+    "carl", "carlos", "charles", "charlie", "chris", "christian", "christopher",
+    "cole", "colin", "connor", "cory", "craig", "daniel", "danny", "david",
+    "dean", "dennis", "derek", "devon", "dominic", "donald", "douglas", "dylan",
+    "edward", "eli", "elijah", "elliot", "eric", "ethan", "evan", "felix",
+    "frank", "fred", "gabriel", "gary", "george", "gerald", "graham", "grant",
+    "greg", "gregory", "harrison", "harry", "henry", "hunter", "ian", "isaac",
+    "jack", "jackson", "jacob", "jake", "james", "jason", "jeff", "jeffrey",
+    "jeremy", "jesse", "joe", "joel", "john", "johnny", "jonathan", "jordan",
+    "joseph", "josh", "joshua", "julian", "justin", "keith", "kenneth", "kevin",
+    "kingsley", "kobe", "kory", "kyle", "lance", "larry", "lawrence", "leo",
+    "liam", "lincoln", "locke", "logan", "louis", "lucas", "luke", "marcus",
+    "mark", "marshall", "martin", "mason", "matthew", "matt", "max", "michael",
+    "mike", "miles", "mitchell", "nathan", "nathaniel", "nicholas", "nick",
+    "noah", "nolan", "oliver", "oscar", "owen", "patrick", "paul", "peter",
+    "philip", "quinten", "quentin", "raymond", "richard", "rick", "robert",
+    "roger", "ronald", "ross", "roy", "russell", "ryan", "sam", "samuel",
+    "scott", "sean", "sebastian", "seth", "shane", "shawn", "simon", "spencer",
+    "stephen", "steve", "steven", "stuart", "thomas", "tim", "timothy", "toby",
+    "todd", "tom", "tommy", "tony", "travis", "trevor", "tristan", "tyler",
+    "victor", "vincent", "walter", "warren", "wayne", "wesley", "will",
+    "william", "wyatt", "zach", "zachary"
+}
+
+COMMON_FEMALE_FIRST_NAMES = {
+    "abigail", "abby", "addison", "adriana", "alexis", "alice", "alicia",
+    "alison", "allison", "alyssa", "amanda", "amber", "amelia", "amy", "andrea",
+    "angela", "anna", "anne", "annie", "ashley", "audrey", "autumn", "ava",
+    "avery", "beatrice", "bella", "beth", "bethany", "betty", "beverly",
+    "bianca", "brenda", "brianna", "bridget", "brittany", "brooke", "caitlin",
+    "camila", "caroline", "carolyn", "carrie", "catherine", "charlotte",
+    "chloe", "christina", "christine", "claire", "clara", "courtney", "crystal",
+    "cynthia", "danielle", "dawn", "deborah", "debra", "delilah", "denise",
+    "diana", "diane", "donna", "dorothy", "eleanor", "elena", "elizabeth",
+    "ella", "ellie", "emily", "emma", "erica", "erin", "eva", "evelyn",
+    "faith", "fiona", "frances", "gabriella", "gabrielle", "gemma", "georgia",
+    "grace", "gwyneth", "hailey", "hannah", "harper", "hazel", "heather",
+    "helen", "holly", "hope", "isabella", "isabelle", "jacqueline", "jade",
+    "jane", "janet", "janice", "jasmine", "jenna", "jennifer", "jenny",
+    "jessica", "jill", "joan", "joanna", "jocelyn", "jordan", "josephine",
+    "joy", "joyce", "judith", "judy", "julia", "julie", "kaitlyn", "karen",
+    "katherine", "kathleen", "kathryn", "katie", "kayla", "kelly", "kendra",
+    "kennedy", "kimberly", "kristen", "kristin", "kylie", "laura", "lauren",
+    "leah", "lillian", "lily", "linda", "lindsay", "lisa", "lucy", "lydia",
+    "madeline", "madison", "maggie", "makayla", "margaret", "maria", "mariah",
+    "marie", "marilyn", "martha", "mary", "maya", "megan", "melanie",
+    "melissa", "michelle", "molly", "monica", "morgan", "nancy", "natalie",
+    "nicole", "nina", "nora", "olivia", "paige", "pamela", "patricia", "paula",
+    "penelope", "peyton", "phoebe", "rachel", "rebecca", "riley", "robin",
+    "rose", "ruby", "ruth", "sabrina", "sadie", "samantha", "sandra", "sara",
+    "sarah", "savannah", "scarlett", "shannon", "sharon", "shelby", "shirley",
+    "sierra", "sofia", "sophia", "sophie", "stacy", "stephanie", "summer",
+    "susan", "sydney", "taylor", "teresa", "tessa", "tiffany", "tracy",
+    "valerie", "vanessa", "veronica", "victoria", "violet", "virginia",
+    "vivian", "wendy", "whitney", "zoe", "zoey"
+}
+
+
+def normalize_gender_value(raw_val):
+    """Normalizes gender strings into 'M' (Guys) or 'F' (Girls), or None if unknown."""
+    if not raw_val:
+        return None
+    val = str(raw_val).strip().lower()
+    if val in ("m", "male", "guy", "guys", "boy", "boys", "man", "men"):
+        return "M"
+    if val in ("f", "female", "girl", "girls", "woman", "women", "lady", "ladies"):
+        return "F"
+    return None
+
+
+def infer_actor_gender(actor_name, characters=None):
+    """Infers 'M' or 'F' from character titles or common first names as a fallback."""
+    if characters:
+        for char in characters:
+            c_low = char.lower()
+            if any(
+                tok in c_low
+                for tok in ("mrs.", "mrs ", "miss ", "ms.", "lady ", "queen ", "mother", "sister", "girl", "woman", "laundress", "belle", "martha", "belinda")
+            ):
+                return "F"
+            if any(
+                tok in c_low
+                for tok in ("mr.", "mr ", "sir ", "lord ", "king ", "father", "brother", "boy", "man", "gentleman", "scrooge", "fezziwig", "marley", "bob cratchit", "tiny tim", "tim cratchit", "fred")
+            ):
+                return "M"
+
+    first_name = actor_name.strip().split()[0].lower() if actor_name.strip() else ""
+    if first_name in COMMON_FEMALE_FIRST_NAMES and first_name not in COMMON_MALE_FIRST_NAMES:
+        return "F"
+    if first_name in COMMON_MALE_FIRST_NAMES and first_name not in COMMON_FEMALE_FIRST_NAMES:
+        return "M"
+    # Default fallback to 'M' if completely ambiguous so every actor lands on a sheet
+    return "M"
+
+
+def load_cast_gender_file(cast_file_path):
+    """Loads an optional JSON mapping of actor_name -> gender ('M'/'F'/'guy'/'girl')."""
+    if not cast_file_path or not os.path.exists(cast_file_path):
+        return {}
+    with open(cast_file_path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    mapping = {}
+    if isinstance(raw, dict):
+        # Support either {"Dean Stults": "M", ...} or {"guys": [...], "girls": [...]}
+        if "guys" in raw or "girls" in raw:
+            for a in raw.get("guys", []):
+                mapping[a.strip()] = "M"
+            for a in raw.get("girls", []):
+                mapping[a.strip()] = "F"
+        else:
+            for actor, g in raw.items():
+                norm = normalize_gender_value(g)
+                if norm:
+                    mapping[actor.strip()] = norm
+    return mapping
+
+
+# -----------------------------------------------------------------------------
 # 1. Parsing & Show Timeline Construction
 # -----------------------------------------------------------------------------
-def parse_show_data(show_json):
-    """Parses hierarchical JSON into an ordered timeline with act-break boundary tags."""
+def parse_show_data(show_json, external_gender_map=None):
+    """
+    Parses hierarchical JSON into an ordered timeline with act-break boundary tags,
+    quick-scene weights, and actor gender classifications ('M' for Guys, 'F' for Girls).
+    """
     scenes = []
+    actor_gender = dict(external_gender_map) if external_gender_map else {}
+    actor_all_chars = defaultdict(list)
+
     act_keys = sorted(
         show_json.keys(),
         key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else str(x),
@@ -47,7 +179,7 @@ def parse_show_data(show_json):
         for s_idx, scene_key in enumerate(scene_keys):
             raw_scene = scene_dict[scene_key]
 
-            # Support both standard list format and dict format with metadata
+            # Support both standard list format and dict format with quick_scene/weight metadata
             if isinstance(raw_scene, dict):
                 cast = raw_scene.get("cast", [])
                 is_quick = raw_scene.get("quick_scene", False)
@@ -62,6 +194,15 @@ def parse_show_data(show_json):
                 char = entry.get("character_name", "").strip()
                 if char and char not in actor_to_chars[actor]:
                     actor_to_chars[actor].append(char)
+                if char and char not in actor_all_chars[actor]:
+                    actor_all_chars[actor].append(char)
+
+                # Check if gender was explicitly provided in show_data.json
+                explicit_g = normalize_gender_value(
+                    entry.get("gender") or entry.get("sex") or entry.get("group")
+                )
+                if explicit_g and actor not in actor_gender:
+                    actor_gender[actor] = explicit_g
 
             actors = sorted(list(actor_to_chars.keys()))
             is_last_scene_of_act = s_idx == len(scene_keys) - 1
@@ -76,7 +217,21 @@ def parse_show_data(show_json):
                 "weight": float(scene_weight),
                 "act_break_after": (is_last_scene_of_act and not is_last_act),
             })
-    return scenes
+
+    # Resolve gender for any actor not explicitly tagged
+    inferred_count = 0
+    for actor, chars in actor_all_chars.items():
+        if actor not in actor_gender:
+            actor_gender[actor] = infer_actor_gender(actor, chars)
+            inferred_count += 1
+
+    if inferred_count > 0:
+        print(
+            f"Note: Auto-classified gender for {inferred_count} cast member(s). "
+            f"You can override any actor via 'gender': 'M'/'F' in show_data.json or --cast-file."
+        )
+
+    return scenes, actor_gender, dict(actor_all_chars)
 
 
 # -----------------------------------------------------------------------------
@@ -156,7 +311,6 @@ def check_validity_and_cost(
             if scenes[t]["act_break_after"]:
                 prev_actor = None
                 prev_scene_idx = -999
-
 
     # Objective B.2: Actor continuity (locking actors to the same pack number)
     actor_active_mics = defaultdict(list)
@@ -280,9 +434,15 @@ def generate_initial_assignment(scenes, num_mics=28, actor_total_scenes=None):
 # 4. Multi-Pass Simulated Annealing Optimization
 # -----------------------------------------------------------------------------
 def optimize_microphone_assignments(
-    show_json, num_mics=28, num_passes=8, iterations_per_pass=3500
+    show_json,
+    num_mics=28,
+    num_passes=8,
+    iterations_per_pass=3500,
+    external_gender_map=None,
 ):
-    scenes = parse_show_data(show_json)
+    scenes, actor_gender, actor_all_chars = parse_show_data(
+        show_json, external_gender_map=external_gender_map
+    )
     actor_total_scenes = Counter()
     for sc in scenes:
         for actor in sc["actors"]:
@@ -632,10 +792,12 @@ def export_master_tracking_excel(
     wb.save(output_filename)
     print(f"Exported Master Tracking Excel: {output_filename}")
 
+
 # -----------------------------------------------------------------------------
 # 7. Deliverable 2: Backstage Handoff & Quick-Change Cue Sheet
+#    (Guys names filled Blue, Girls names filled Pink)
 # -----------------------------------------------------------------------------
-def extract_backstage_handoffs(scenes, assignment, num_mics):
+def extract_backstage_handoffs(scenes, assignment, num_mics, actor_gender):
     """Chronologically orders physical mic swaps for backstage dressers and A2 crew."""
     handoffs = []
     for mic in range(1, num_mics + 1):
@@ -659,29 +821,23 @@ def extract_backstage_handoffs(scenes, assignment, num_mics):
                         scenes[k]["act_break_after"]
                         for k in range(prev_off_t, t)
                     )
+                    buffer_weight = sum(
+                        scenes[k]["weight"] for k in range(prev_off_t + 1, t)
+                    )
 
-                    # if has_intermission:
-                    #     window_desc = "INTERMISSION BREAK"
-                    #     urgency = "☕ Intermission Swap"
-                    # elif gap == 1:
-                    #     buffer_sc = scenes[prev_off_t + 1]["label"]
-                    #     window_desc = f"1 Scene Buffer ({buffer_sc})"
-                    #     urgency = "⚡ QUICK CHANGE"
-                    # else:
-                    #     window_desc = f"{gap} Scenes Buffer"
-                    #     urgency = f"⏱️ Standard Swap ({gap} scenes)"
-                    buffer_weight = sum(scenes[k]["weight"] for k in range(prev_off_t + 1, t))
                     if has_intermission:
                         window_desc = "INTERMISSION BREAK"
                         urgency = "☕ Intermission Swap"
                     elif buffer_weight <= 1.0:
-                        buffer_names = " + ".join(scenes[k]["label"] for k in range(prev_off_t + 1, t))
+                        buffer_names = " + ".join(
+                            scenes[k]["label"]
+                            for k in range(prev_off_t + 1, t)
+                        )
                         window_desc = f"{gap} Scene(s) ({buffer_names})"
                         urgency = "⚡ QUICK CHANGE"
                     else:
                         window_desc = f"{gap} Scenes Buffer"
                         urgency = f"⏱️ Standard Swap ({gap} scenes)"
-
 
                     off_chars = ", ".join(
                         off_scene["actor_chars"].get(prev_actor, [])
@@ -695,10 +851,12 @@ def extract_backstage_handoffs(scenes, assignment, num_mics):
                         "off_scene_idx": prev_off_t,
                         "off_scene_label": off_scene["label"],
                         "off_actor": prev_actor,
+                        "off_gender": actor_gender.get(prev_actor, "M"),
                         "off_characters": off_chars,
                         "on_scene_idx": t,
                         "on_scene_label": on_scene["label"],
                         "on_actor": curr_actor,
+                        "on_gender": actor_gender.get(curr_actor, "M"),
                         "on_characters": on_chars,
                         "window_desc": window_desc,
                         "urgency": urgency,
@@ -715,6 +873,10 @@ def extract_backstage_handoffs(scenes, assignment, num_mics):
 def export_backstage_handoffs_excel(
     handoffs, output_filename="backstage_mic_handoffs.xlsx"
 ):
+    """
+    Exports Backstage Handoff sheet with Blue background fill for Guys' names
+    and Pink background fill for Girls' names so tech teams can spot their cues instantly.
+    """
     if not OPENPYXL_AVAILABLE:
         return
 
@@ -730,6 +892,18 @@ def export_backstage_handoffs_excel(
         start_color="1F497D", end_color="1F497D", fill_type="solid"
     )
 
+    # Gender Fills for Actor Names (Blue for Guys, Pink for Girls)
+    fill_guy = PatternFill(
+        start_color="CFE2F3", end_color="CFE2F3", fill_type="solid"
+    )  # Soft Sky Blue
+    font_guy = Font(name="Calibri", size=10, bold=True, color="0B3954")
+
+    fill_girl = PatternFill(
+        start_color="FADBD8", end_color="FADBD8", fill_type="solid"
+    )  # Soft Rose Pink
+    font_girl = Font(name="Calibri", size=10, bold=True, color="78281F")
+
+    # Urgency Fills
     fill_quick = PatternFill(
         start_color="FCE4D6", end_color="FCE4D6", fill_type="solid"
     )
@@ -773,222 +947,316 @@ def export_backstage_handoffs_excel(
         cell.fill = fill_header
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    for idx, h in enumerate(handoffs, 1):
-        off_name = (
-            f"{h['off_actor']} ({h['off_characters']})"
-            if h["off_characters"]
-            else h["off_actor"]
-        )
-        on_name = (
-            f"{h['on_actor']} ({h['on_characters']})"
-            if h["on_characters"]
-            else h["on_actor"]
-        )
-        row_vals = [
-            f"Mic {h['mic']}",
-            off_name,
-            f"After {h['off_scene_label']}",
-            on_name,
-            f"Before {h['on_scene_label']}",
-            h["urgency"],
-        ]
-        ws.append(row_vals)
-        r_num = 4 + idx
+    if not handoffs:
+        ws.append([
+            "—",
+            "All",
+            "No physical mic handoffs required across the production.",
+            "—",
+            "—",
+            "—",
+            "—",
+            "Dedicated Packs",
+            "Ready",
+        ])
+    else:
+        for idx, h in enumerate(handoffs, 1):
+            off_name = (
+                f"{h['off_actor']} ({h['off_characters']})"
+                if h["off_characters"]
+                else h["off_actor"]
+            )
+            on_name = (
+                f"{h['on_actor']} ({h['on_characters']})"
+                if h["on_characters"]
+                else h["on_actor"]
+            )
+            row_vals = [
+                f"Cue #{idx}",
+                f"Mic {h['mic']}",
+                off_name,
+                f"After {h['off_scene_label']}",
+                on_name,
+                f"Before {h['on_scene_label']}",
+                h["window_desc"],
+                h["urgency"],
+                "[ ] Cleaned  [ ] Repacked  [ ] Checked",
+            ]
+            ws.append(row_vals)
+            r_num = 4 + idx
 
-        for c_idx in range(1, len(headers) + 1):
-            c = ws.cell(row=r_num, column=c_idx)
-            c.border = thin_border
-            c.alignment = Alignment(vertical="center")
+            for c_idx in range(1, len(headers) + 1):
+                c = ws.cell(row=r_num, column=c_idx)
+                c.border = thin_border
+                c.alignment = Alignment(vertical="center")
 
-        ws.cell(row=r_num, column=1).alignment = Alignment(
-            horizontal="center", vertical="center"
-        )
-        ws.cell(row=r_num, column=1).font = Font(
-            name="Calibri", size=10, bold=True
-        )
-        ws.cell(row=r_num, column=3).alignment = Alignment(
-            horizontal="center", vertical="center"
-        )
-        ws.cell(row=r_num, column=5).alignment = Alignment(
-            horizontal="center", vertical="center"
-        )
+            ws.cell(row=r_num, column=1).alignment = Alignment(
+                horizontal="center", vertical="center"
+            )
+            ws.cell(row=r_num, column=1).font = Font(
+                name="Calibri", size=10, bold=True
+            )
+            ws.cell(row=r_num, column=2).alignment = Alignment(
+                horizontal="center", vertical="center"
+            )
+            ws.cell(row=r_num, column=2).font = Font(
+                name="Calibri", size=10, bold=True
+            )
 
-        alert_c = ws.cell(row=r_num, column=6)
-        if "QUICK CHANGE" in h["urgency"]:
-            alert_c.fill = fill_quick
-            alert_c.font = font_quick
-        elif "Intermission" in h["urgency"]:
-            alert_c.fill = fill_intermission
-            alert_c.font = font_intermission
-        else:
-            alert_c.fill = fill_standard
-            alert_c.font = font_standard
+            # Column 3: REMOVE FROM actor cell -> Blue for Guys, Pink for Girls
+            off_cell = ws.cell(row=r_num, column=3)
+            if h["off_gender"] == "F":
+                off_cell.fill = fill_girl
+                off_cell.font = font_girl
+            else:
+                off_cell.fill = fill_guy
+                off_cell.font = font_guy
+
+            ws.cell(row=r_num, column=4).alignment = Alignment(
+                horizontal="center", vertical="center"
+            )
+
+            # Column 5: ATTACH TO actor cell -> Blue for Guys, Pink for Girls
+            on_cell = ws.cell(row=r_num, column=5)
+            if h["on_gender"] == "F":
+                on_cell.fill = fill_girl
+                on_cell.font = font_girl
+            else:
+                on_cell.fill = fill_guy
+                on_cell.font = font_guy
+
+            ws.cell(row=r_num, column=6).alignment = Alignment(
+                horizontal="center", vertical="center"
+            )
+
+            alert_c = ws.cell(row=r_num, column=8)
+            if "QUICK CHANGE" in h["urgency"]:
+                alert_c.fill = fill_quick
+                alert_c.font = font_quick
+            elif "Intermission" in h["urgency"]:
+                alert_c.fill = fill_intermission
+                alert_c.font = font_intermission
+            else:
+                alert_c.fill = fill_standard
+                alert_c.font = font_standard
 
     for col in ws.columns:
         max_len = max(len(str(cell.value or "")) for cell in col)
         col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 28)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 42)
 
     ws.freeze_panes = "A5"
     wb.save(output_filename)
-    print(f"Exported Backstage Handoffs Excel: {output_filename}")
+    print(f"Exported Backstage Handoffs Excel (Blue/Pink Gender Fills): {output_filename}")
 
 
 # -----------------------------------------------------------------------------
 # 8. Deliverable 3: Top-of-Show / Pre-Show Rigging Preset Sheet
+#    Two separate Excel tabs ('Guys' and 'Girls') formatted like the printed rack sheet:
+#      Cast Member | Pack # | Tech | Sat | Mon | Tues | Wed | Thurs | Frid | Sat | Sat
 # -----------------------------------------------------------------------------
-def extract_top_of_show_presets(scenes, assignment, num_mics):
-    """Generates pre-show rigging assignments for Channels 1 through N."""
-    presets = []
+def extract_top_of_show_presets(
+    scenes, assignment, num_mics, actor_gender, actor_all_chars
+):
+    """
+    Maps each mic (1..N) to its initial top-of-show wearer (if any), and builds
+    complete alphabetical cast rosters for 'Guys' and 'Girls' (including cast
+    members who start without a pack at the top of the show, leaving Pack # blank).
+    """
+    actor_initial_mic = {}
+    actor_first_scene_idx = {}
 
     for mic in range(1, num_mics + 1):
-        first_t = None
-        first_actor = None
-
         for t in range(len(scenes)):
+            found_actor = None
             for actor, m in assignment[t].items():
                 if m == mic:
-                    first_t = t
-                    first_actor = actor
+                    found_actor = actor
                     break
-            if first_t is not None:
+            if found_actor is not None:
+                # Only assign as top-of-show pack if this actor doesn't already have a lower initial mic
+                if found_actor not in actor_initial_mic:
+                    actor_initial_mic[found_actor] = mic
+                    actor_first_scene_idx[found_actor] = t
                 break
 
-        if first_t is None:
-            presets.append({
-                "mic": mic,
-                "actor": "—",
-                "character": "—",
-                "status": "Spare / Idle on Rack",
-                "entrance_scene": "None",
-            })
-        else:
-            sc = scenes[first_t]
-            char_list = sc["actor_chars"].get(first_actor, [])
-            status_desc = (
-                "Active at Curtain Up"
-                if first_t == 0
-                else f"Pre-rigged (Enters {sc['label']})"
-            )
-            presets.append({
-                "mic": mic,
-                "actor": first_actor,
-                "character": ", ".join(char_list) if char_list else "—",
-                "status": status_desc,
-                "entrance_scene": sc["label"],
-            })
+    guys_list = []
+    girls_list = []
 
-    return presets
+    for actor in sorted(actor_all_chars.keys(), key=lambda x: x.lower()):
+        gender = actor_gender.get(actor, "M")
+        pack_num = actor_initial_mic.get(actor)  # None if they start without a mic
+        first_t = actor_first_scene_idx.get(actor)
+        chars = ", ".join(actor_all_chars.get(actor, []))
+
+        if pack_num is None:
+            status = "No Top-of-Show Pack (Receives Swap Later)"
+            entrance_scene = "Later Swap"
+        elif first_t == 0:
+            status = "Active at Curtain Up"
+            entrance_scene = scenes[0]["label"]
+        else:
+            status = "Pre-Rigged (Enters Later)"
+            entrance_scene = scenes[first_t]["label"]
+
+        entry = {
+            "actor": actor,
+            "gender": gender,
+            "pack_num": pack_num,
+            "first_t": first_t,
+            "characters": chars,
+            "status": status,
+            "entrance_scene": entrance_scene,
+        }
+
+        if gender == "F":
+            girls_list.append(entry)
+        else:
+            guys_list.append(entry)
+
+    return guys_list, girls_list
 
 
 def export_top_of_show_csv(
-    presets, output_filename="top_of_show_preset.csv"
+    guys_list, girls_list, perf_days, output_filename="top_of_show_preset.csv"
 ):
+    """Exports Top-of-Show preset CSV with separate Guys and Girls sections."""
     with open(output_filename, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["TOP-OF-SHOW / PRE-SHOW RIGGING PRESET SHEET"])
-        writer.writerow([
-            "Physical Channel Rigging Status Before House Opens (Mics 1 to N)"
-        ])
-        writer.writerow([])
-        writer.writerow([
-            "Mic Channel",
-            "Actor's Name",
-            "Character(s)",
-            "Top-of-Show Status",
-            "First Entrance Scene",
-            "Checklist",
-        ])
-
-        for p in presets:
-            writer.writerow([
-                f"Mic {p['mic']}",
-                p["actor"],
-                p["character"],
-                p["status"],
-                p["entrance_scene"],
-                "[ ] Mic Rigged  [ ] Line Check",
-            ])
+        for group_title, roster in [("GUYS", guys_list), ("GIRLS", girls_list)]:
+            writer.writerow([f"=== TOP-OF-SHOW PRESET: {group_title} ==="])
+            writer.writerow(["Cast Member", "Pack #"] + perf_days)
+            for row in roster:
+                pack_str = str(row["pack_num"]) if row["pack_num"] is not None else ""
+                writer.writerow([row["actor"], pack_str] + [""] * len(perf_days))
+            writer.writerow([])
 
     print(f"Exported Top-of-Show Preset CSV: {output_filename}")
 
 
 def export_top_of_show_excel(
-    presets, output_filename="top_of_show_preset.xlsx"
+    guys_list, girls_list, perf_days, output_filename="top_of_show_preset.xlsx"
 ):
+    """
+    Exports Top-of-Show Preset Excel workbook with TWO sheets ('Guys' and 'Girls'),
+    styled after the printed backstage check-off chart:
+      - Bright yellow header row with bold black text and full black borders:
+        Cast Member | Pack # | Tech | Sat | Mon | Tues | Wed | Thurs | Frid | Sat | Sat
+      - Alphabetical cast list (including cast members without an initial pack left blank)
+      - Light blue fill on Pack # cells for Curtain-Up packs, white fill for Pre-Rigged packs.
+    """
     if not OPENPYXL_AVAILABLE:
         return
 
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Top of Show Preset"
-    ws.views.sheetView[0].showGridLines = True
+    # Remove default sheet; we'll create 'Guys' and 'Girls'
+    wb.remove(wb.active)
 
-    font_title = Font(name="Calibri", size=14, bold=True, color="1F497D")
-    font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    fill_header = PatternFill(
-        start_color="1F497D", end_color="1F497D", fill_type="solid"
+    # Exact visual styling matching the reference photo
+    fill_yellow_header = PatternFill(
+        start_color="FFFF00", end_color="FFFF00", fill_type="solid"
+    )
+    font_header_main = Font(name="Calibri", size=14, bold=True, color="111111")
+    font_header_day = Font(name="Calibri", size=11, bold=True, color="111111")
+
+    font_actor = Font(name="Calibri", size=12, bold=True, color="111111")
+    font_pack = Font(name="Calibri", size=12, bold=True, color="111111")
+
+    fill_curtain_pack = PatternFill(
+        start_color="CFE2F3", end_color="CFE2F3", fill_type="solid"
+    )  # Light blue highlight on curtain-up packs
+    fill_white = PatternFill(
+        start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"
     )
 
-    thin_border = Border(
-        left=Side(style="thin", color="D9D9D9"),
-        right=Side(style="thin", color="D9D9D9"),
-        top=Side(style="thin", color="D9D9D9"),
-        bottom=Side(style="thin", color="D9D9D9"),
+    black_thin = Side(style="thin", color="000000")
+    black_medium = Side(style="medium", color="000000")
+
+    grid_border = Border(
+        left=black_thin,
+        right=black_thin,
+        top=black_thin,
+        bottom=black_thin,
+    )
+    header_border = Border(
+        left=black_thin,
+        right=black_thin,
+        top=black_medium,
+        bottom=black_medium,
     )
 
-    ws.append(["TOP-OF-SHOW / PRE-SHOW RIGGING PRESET SHEET"])
-    ws.cell(row=1, column=1).font = font_title
-    ws.append([])
+    headers = ["Cast Member", "Pack #"] + list(perf_days)
 
-    headers = [
-        "Mic Channel",
-        "Actor's Name",
-        "Character(s)",
-        "Top-of-Show Status",
-        "First Entrance Scene",
-        "Pre-Show Checklist",
-    ]
-    ws.append(headers)
+    for sheet_name, roster in [("Guys", guys_list), ("Girls", girls_list)]:
+        ws = wb.create_sheet(title=sheet_name)
+        ws.views.sheetView[0].showGridLines = True
 
-    for col_idx in range(1, len(headers) + 1):
-        cell = ws.cell(row=3, column=col_idx)
-        cell.font = font_header
-        cell.fill = fill_header
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        # Page setup for clean landscape printing
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 1
 
-    for idx, p in enumerate(presets, 1):
-        row_vals = [
-            f"Mic {p['mic']}",
-            p["actor"],
-            p["character"],
-            p["status"],
-            p["entrance_scene"],
-            "[ ] Rigged  [ ] Line Check",
-        ]
-        ws.append(row_vals)
-        r_num = 3 + idx
+        # Header Row (Row 1)
+        ws.append(headers)
+        ws.row_dimensions[1].height = 28
 
-        for c_idx in range(1, len(headers) + 1):
-            c = ws.cell(row=r_num, column=c_idx)
-            c.border = thin_border
-            c.alignment = Alignment(vertical="center")
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = fill_yellow_header
+            cell.border = header_border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.font = (
+                font_header_main if col_idx <= 2 else font_header_day
+            )
 
-        ws.cell(row=r_num, column=1).alignment = Alignment(
-            horizontal="center", vertical="center"
-        )
-        ws.cell(row=r_num, column=1).font = Font(
-            name="Calibri", size=10, bold=True
-        )
+        # Data Rows
+        for r_offset, entry in enumerate(roster):
+            row_num = 2 + r_offset
+            ws.row_dimensions[row_num].height = 22
 
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or "")) for cell in col)
-        col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 14), 38)
+            pack_val = entry["pack_num"] if entry["pack_num"] is not None else ""
+            row_vals = [entry["actor"], pack_val] + [""] * len(perf_days)
+            ws.append(row_vals)
 
-    ws.freeze_panes = "A4"
+            # Col 1: Cast Member
+            c_actor = ws.cell(row=row_num, column=1)
+            c_actor.font = font_actor
+            c_actor.fill = fill_white
+            c_actor.border = grid_border
+            c_actor.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+            # Col 2: Pack #
+            c_pack = ws.cell(row=row_num, column=2)
+            c_pack.font = font_pack
+            c_pack.border = grid_border
+            c_pack.alignment = Alignment(horizontal="center", vertical="center")
+            # Shade light blue if active at curtain up (first_t == 0), white otherwise
+            if entry["pack_num"] is not None and entry["first_t"] == 0:
+                c_pack.fill = fill_curtain_pack
+            else:
+                c_pack.fill = fill_white
+
+            # Cols 3..N: Performance check-off boxes
+            for day_idx in range(len(perf_days)):
+                c_day = ws.cell(row=row_num, column=3 + day_idx)
+                c_day.fill = fill_white
+                c_day.border = grid_border
+                c_day.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Column widths matching the printed sheet proportions
+        max_name_len = max([len(e["actor"]) for e in roster] + [16])
+        ws.column_dimensions["A"].width = max(max_name_len + 6, 24)
+        ws.column_dimensions["B"].width = 13
+        for day_idx in range(len(perf_days)):
+            col_letter = get_column_letter(3 + day_idx)
+            ws.column_dimensions[col_letter].width = 7.5
+
+        ws.freeze_panes = "C2"
+
     wb.save(output_filename)
-    print(f"Exported Top-of-Show Preset Excel: {output_filename}")
+    print(f"Exported Top-of-Show Preset Excel with 'Guys' & 'Girls' tabs: {output_filename}")
 
 
 # -----------------------------------------------------------------------------
@@ -1003,6 +1271,11 @@ def main():
         nargs="?",
         default="show_data.json",
         help="Path to show input JSON file",
+    )
+    parser.add_argument(
+        "--cast-file",
+        default=None,
+        help="Optional JSON file mapping actor names to gender ('M'/'F' or 'guys'/'girls')",
     )
     parser.add_argument(
         "--mics",
@@ -1023,6 +1296,11 @@ def main():
         help="Iterations per annealing pass (default: 3500)",
     )
     parser.add_argument(
+        "--perf-days",
+        default="Tech,Sat,Mon,Tues,Wed,Thurs,Frid,Sat,Sat",
+        help="Comma-separated performance columns for the Top-of-Show check-off sheets",
+    )
+    parser.add_argument(
         "--output",
         default="mic_tracking_sheet.csv",
         help="Master tracking CSV path",
@@ -1040,7 +1318,7 @@ def main():
     parser.add_argument(
         "--top-xlsx",
         default="top_of_show_preset.xlsx",
-        help="Pre-show preset Excel path",
+        help="Pre-show preset Excel path (with 'Guys' and 'Girls' tabs)",
     )
     parser.add_argument(
         "--handoffs-csv",
@@ -1050,7 +1328,7 @@ def main():
     parser.add_argument(
         "--handoffs-xlsx",
         default="backstage_mic_handoffs.xlsx",
-        help="Backstage quick-change Excel path",
+        help="Backstage quick-change Excel path (with Blue/Pink actor fills)",
     )
 
     args = parser.parse_args()
@@ -1062,17 +1340,26 @@ def main():
         print(f"Error: JSON file '{args.json_file}' not found.")
         sys.exit(1)
 
+    external_gender_map = load_cast_gender_file(args.cast_file)
+    perf_days = [d.strip() for d in args.perf_days.split(",") if d.strip()]
+
     print(
         f"Loaded '{args.json_file}'. Optimizing for {args.mics} mic packs across"
         f" {args.passes} passes ({args.iters} iters/pass)..."
     )
-    scenes, best_assignment, cost, actor_freq = (
-        optimize_microphone_assignments(
-            show_data,
-            num_mics=args.mics,
-            num_passes=args.passes,
-            iterations_per_pass=args.iters,
-        )
+    (
+        scenes,
+        best_assignment,
+        cost,
+        actor_freq,
+        actor_gender,
+        actor_all_chars,
+    ) = optimize_microphone_assignments(
+        show_data,
+        num_mics=args.mics,
+        num_passes=args.passes,
+        iterations_per_pass=args.iters,
+        external_gender_map=external_gender_map,
     )
 
     if not best_assignment:
@@ -1082,7 +1369,7 @@ def main():
         )
         sys.exit(1)
 
-    # Deliverable 1: Master Tracking Sheet (split shared rows, 'X', '-', change window)
+    # Deliverable 1: Master Tracking Sheet
     stints = build_actor_stints(scenes, best_assignment, args.mics)
     export_master_tracking_csv(scenes, stints, args.mics, args.output)
     if OPENPYXL_AVAILABLE:
@@ -1090,16 +1377,23 @@ def main():
             scenes, stints, args.mics, args.output_xlsx
         )
 
-    # Deliverable 2: Backstage Handoffs & Quick Changes
-    handoffs = extract_backstage_handoffs(scenes, best_assignment, args.mics)
+    # Deliverable 2: Backstage Handoffs & Quick Changes (Blue = Guys, Pink = Girls)
+    handoffs = extract_backstage_handoffs(
+        scenes, best_assignment, args.mics, actor_gender
+    )
+    export_backstage_handoffs_csv(handoffs, args.handoffs_csv)
     if OPENPYXL_AVAILABLE:
         export_backstage_handoffs_excel(handoffs, args.handoffs_xlsx)
 
-    # Deliverable 3: Top-of-Show / Pre-Show Presets (Channels 1 to N)
-    presets = extract_top_of_show_presets(scenes, best_assignment, args.mics)
-    #export_top_of_show_csv(presets, args.top_csv)
+    # Deliverable 3: Top-of-Show / Pre-Show Presets ('Guys' and 'Girls' sheets)
+    guys_list, girls_list = extract_top_of_show_presets(
+        scenes, best_assignment, args.mics, actor_gender, actor_all_chars
+    )
+    export_top_of_show_csv(guys_list, girls_list, perf_days, args.top_csv)
     if OPENPYXL_AVAILABLE:
-        export_top_of_show_excel(presets, args.top_xlsx)
+        export_top_of_show_excel(
+            guys_list, girls_list, perf_days, args.top_xlsx
+        )
 
     print(
         f"Finished optimization. Minimized objective cost: {cost:.2f}. All"
