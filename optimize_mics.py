@@ -69,17 +69,17 @@ COMMON_FEMALE_FIRST_NAMES = {
     "ella", "ellie", "emily", "emma", "erica", "erin", "eva", "evelyn",
     "faith", "fiona", "frances", "gabriella", "gabrielle", "gemma", "georgia",
     "grace", "gwyneth", "hailey", "hannah", "harper", "hazel", "heather",
-    "helen", "holly", "hope", "isabella", "isabelle", "jacqueline", "jade",
+    "helen", "holly", "hope", "isabella", "isabelle", "jacqueline", "jade", "jamie",
     "jane", "janet", "janice", "jasmine", "jenna", "jennifer", "jenny",
     "jessica", "jill", "joan", "joanna", "jocelyn", "jordan", "josephine",
     "joy", "joyce", "judith", "judy", "julia", "julie", "kaitlyn", "karen",
     "katherine", "kathleen", "kathryn", "katie", "kayla", "kelly", "kendra",
-    "kennedy", "kimberly", "kristen", "kristin", "kylie", "laura", "lauren",
+    "kennedy", "kimberly", "kory", "kristen", "kristin", "kylie", "landyn", "laura", "lauren",
     "leah", "lillian", "lily", "linda", "lindsay", "lisa", "lucy", "lydia",
-    "madeline", "madison", "maggie", "makayla", "margaret", "maria", "mariah",
+    "madeline", "madeleine","madison", "maggie", "makayla", "margaret", "maria", "mariah",
     "marie", "marilyn", "martha", "mary", "maya", "megan", "melanie",
     "melissa", "michelle", "molly", "monica", "morgan", "nancy", "natalie",
-    "nicole", "nina", "nora", "olivia", "paige", "pamela", "patricia", "paula",
+    "nicole", "nina", "nora", "olivia", "paige", "pamela", "patricia", "patti", "paula",
     "penelope", "peyton", "phoebe", "rachel", "rebecca", "riley", "robin",
     "rose", "ruby", "ruth", "sabrina", "sadie", "samantha", "sandra", "sara",
     "sarah", "savannah", "scarlett", "shannon", "sharon", "shelby", "shirley",
@@ -511,7 +511,14 @@ def optimize_microphone_assignments(
 
             temp *= cooling
 
-    return scenes, best_global_assignment, best_global_cost, actor_total_scenes
+    return (
+        scenes,
+        best_global_assignment,
+        best_global_cost,
+        actor_total_scenes,
+        actor_gender,
+        actor_all_chars,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -666,10 +673,7 @@ def export_master_tracking_csv(
 def export_master_tracking_excel(
     scenes, actor_stints, num_mics, output_filename="mic_tracking_sheet.xlsx"
 ):
-    """Exports master matrix into a styled Excel workbook with visual color indicators
-
-    and alternating row zebra-striping by physical mic number (odd vs even).
-    """
+    """Exports master matrix into a styled Excel workbook with odd/even mic row striping."""
     if not OPENPYXL_AVAILABLE:
         return
 
@@ -972,15 +976,12 @@ def export_backstage_handoffs_excel(
                 else h["on_actor"]
             )
             row_vals = [
-                f"Cue #{idx}",
                 f"Mic {h['mic']}",
                 off_name,
                 f"After {h['off_scene_label']}",
                 on_name,
                 f"Before {h['on_scene_label']}",
-                h["window_desc"],
                 h["urgency"],
-                "[ ] Cleaned  [ ] Repacked  [ ] Checked",
             ]
             ws.append(row_vals)
             r_num = 4 + idx
@@ -1062,9 +1063,18 @@ def extract_top_of_show_presets(
     Maps each mic (1..N) to its initial top-of-show wearer (if any), and builds
     complete alphabetical cast rosters for 'Guys' and 'Girls' (including cast
     members who start without a pack at the top of the show, leaving Pack # blank).
+    Also flags 'is_dedicated_whole_show' when an actor keeps that same mic pack
+    for the entire show without any pack changes or swaps.
     """
     actor_initial_mic = {}
     actor_first_scene_idx = {}
+    actors_per_mic = defaultdict(set)
+    mics_per_actor = defaultdict(set)
+
+    for t in range(len(scenes)):
+        for actor, m in assignment[t].items():
+            actors_per_mic[m].add(actor)
+            mics_per_actor[actor].add(m)
 
     for mic in range(1, num_mics + 1):
         for t in range(len(scenes)):
@@ -1089,14 +1099,20 @@ def extract_top_of_show_presets(
         first_t = actor_first_scene_idx.get(actor)
         chars = ", ".join(actor_all_chars.get(actor, []))
 
+        is_dedicated_whole_show = (
+            pack_num is not None
+            and len(actors_per_mic[pack_num]) == 1
+            and len(mics_per_actor[actor]) == 1
+        )
+
         if pack_num is None:
             status = "No Top-of-Show Pack (Receives Swap Later)"
             entrance_scene = "Later Swap"
-        elif first_t == 0:
-            status = "Active at Curtain Up"
-            entrance_scene = scenes[0]["label"]
+        elif is_dedicated_whole_show:
+            status = "Dedicated Pack (Whole Show - No Changes)"
+            entrance_scene = scenes[first_t]["label"]
         else:
-            status = "Pre-Rigged (Enters Later)"
+            status = "Shared Pack (Changes During Show)"
             entrance_scene = scenes[first_t]["label"]
 
         entry = {
@@ -1104,6 +1120,7 @@ def extract_top_of_show_presets(
             "gender": gender,
             "pack_num": pack_num,
             "first_t": first_t,
+            "is_dedicated_whole_show": is_dedicated_whole_show,
             "characters": chars,
             "status": status,
             "entrance_scene": entrance_scene,
@@ -1115,24 +1132,6 @@ def extract_top_of_show_presets(
             guys_list.append(entry)
 
     return guys_list, girls_list
-
-
-def export_top_of_show_csv(
-    guys_list, girls_list, perf_days, output_filename="top_of_show_preset.csv"
-):
-    """Exports Top-of-Show preset CSV with separate Guys and Girls sections."""
-    with open(output_filename, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        for group_title, roster in [("GUYS", guys_list), ("GIRLS", girls_list)]:
-            writer.writerow([f"=== TOP-OF-SHOW PRESET: {group_title} ==="])
-            writer.writerow(["Cast Member", "Pack #"] + perf_days)
-            for row in roster:
-                pack_str = str(row["pack_num"]) if row["pack_num"] is not None else ""
-                writer.writerow([row["actor"], pack_str] + [""] * len(perf_days))
-            writer.writerow([])
-
-    print(f"Exported Top-of-Show Preset CSV: {output_filename}")
-
 
 def export_top_of_show_excel(
     guys_list, girls_list, perf_days, output_filename="top_of_show_preset.xlsx"
@@ -1162,9 +1161,12 @@ def export_top_of_show_excel(
     font_actor = Font(name="Calibri", size=12, bold=True, color="111111")
     font_pack = Font(name="Calibri", size=12, bold=True, color="111111")
 
-    fill_curtain_pack = PatternFill(
+    fill_guy_dedicated_pack = PatternFill(
         start_color="CFE2F3", end_color="CFE2F3", fill_type="solid"
-    )  # Light blue highlight on curtain-up packs
+    )  # Soft sky blue when a guy keeps the pack the whole show without changes
+    fill_girl_dedicated_pack = PatternFill(
+        start_color="FADBD8", end_color="FADBD8", fill_type="solid"
+    )  # Soft rose pink when a girl keeps the pack the whole show without changes
     fill_white = PatternFill(
         start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"
     )
@@ -1232,9 +1234,13 @@ def export_top_of_show_excel(
             c_pack.font = font_pack
             c_pack.border = grid_border
             c_pack.alignment = Alignment(horizontal="center", vertical="center")
-            # Shade light blue if active at curtain up (first_t == 0), white otherwise
-            if entry["pack_num"] is not None and entry["first_t"] == 0:
-                c_pack.fill = fill_curtain_pack
+            # Shade blue if a guy keeps the pack the whole show without changes,
+            # pink if a girl keeps the pack the whole show without changes, white otherwise
+            if entry["pack_num"] is not None and entry.get("is_dedicated_whole_show"):
+                if entry["gender"] == "F":
+                    c_pack.fill = fill_girl_dedicated_pack
+                else:
+                    c_pack.fill = fill_guy_dedicated_pack
             else:
                 c_pack.fill = fill_white
 
@@ -1311,19 +1317,9 @@ def main():
         help="Master tracking Excel path",
     )
     parser.add_argument(
-        "--top-csv",
-        default="top_of_show_preset.csv",
-        help="Pre-show preset CSV path",
-    )
-    parser.add_argument(
         "--top-xlsx",
         default="top_of_show_preset.xlsx",
         help="Pre-show preset Excel path (with 'Guys' and 'Girls' tabs)",
-    )
-    parser.add_argument(
-        "--handoffs-csv",
-        default="backstage_mic_handoffs.csv",
-        help="Backstage quick-change CSV path",
     )
     parser.add_argument(
         "--handoffs-xlsx",
@@ -1381,7 +1377,6 @@ def main():
     handoffs = extract_backstage_handoffs(
         scenes, best_assignment, args.mics, actor_gender
     )
-    export_backstage_handoffs_csv(handoffs, args.handoffs_csv)
     if OPENPYXL_AVAILABLE:
         export_backstage_handoffs_excel(handoffs, args.handoffs_xlsx)
 
@@ -1389,7 +1384,6 @@ def main():
     guys_list, girls_list = extract_top_of_show_presets(
         scenes, best_assignment, args.mics, actor_gender, actor_all_chars
     )
-    export_top_of_show_csv(guys_list, girls_list, perf_days, args.top_csv)
     if OPENPYXL_AVAILABLE:
         export_top_of_show_excel(
             guys_list, girls_list, perf_days, args.top_xlsx
