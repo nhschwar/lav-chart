@@ -19,50 +19,6 @@ import argparse
 from datetime import datetime
 from collections import defaultdict
 
-
-# def load_show_json_map(json_path):
-#     """
-#     Parses show_data.json into an ordered list of scenes matching optimize_mics.py.
-#     Returns:
-#       scene_char_map[scene_idx][actor_name] = "Character Name in that Scene"
-#     """
-#     if not json_path or not os.path.exists(json_path):
-#         return None
-
-#     with open(json_path, mode="r", encoding="utf-8") as f:
-#         show_json = json.load(f)
-
-#     act_keys = sorted(
-#         show_json.keys(),
-#         key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else str(x)
-#     )
-
-#     scene_char_map = {}
-#     s_global_idx = 0
-
-#     for act_key in act_keys:
-#         scene_dict = show_json[act_key]
-#         scene_keys = sorted(
-#             scene_dict.keys(),
-#             key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else str(x)
-#         )
-#         for scene_key in scene_keys:
-#             cast = scene_dict[scene_key]
-#             char_lookup = defaultdict(list)
-#             for entry in cast:
-#                 actor = entry["associated_actor"].strip()
-#                 char = entry.get("character_name", "").strip()
-#                 if char and char not in char_lookup[actor]:
-#                     char_lookup[actor].append(char)
-
-#             scene_char_map[s_global_idx] = {
-#                 actor: " / ".join(chars) for actor, chars in char_lookup.items()
-#             }
-#             s_global_idx += 1
-
-#     return scene_char_map
-
-
 def load_show_json_map(json_path):
     """
     Parses show_data.json into an ordered map of scene_idx -> {actor: character_name(s)}.
