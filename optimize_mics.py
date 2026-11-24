@@ -870,7 +870,7 @@ def extract_backstage_handoffs(scenes, assignment, num_mics, actor_gender):
                 prev_off_t = t
 
     handoffs.sort(
-        key=lambda x: (x["off_scene_idx"], x["on_scene_idx"], x["mic"])
+        key=lambda x: (x["on_scene_idx"], x["off_scene_idx"], x["mic"])
     )
     return handoffs
 
@@ -954,14 +954,11 @@ def export_backstage_handoffs_excel(
     if not handoffs:
         ws.append([
             "—",
-            "All",
+            "-",
             "No physical mic handoffs required across the production.",
             "—",
             "—",
             "—",
-            "—",
-            "Dedicated Packs",
-            "Ready",
         ])
     else:
         for idx, h in enumerate(handoffs, 1):
@@ -1001,11 +998,11 @@ def export_backstage_handoffs_excel(
                 horizontal="center", vertical="center"
             )
             ws.cell(row=r_num, column=2).font = Font(
-                name="Calibri", size=10, bold=True
+                name="Calibri", size=10
             )
 
             # Column 3: REMOVE FROM actor cell -> Blue for Guys, Pink for Girls
-            off_cell = ws.cell(row=r_num, column=3)
+            off_cell = ws.cell(row=r_num, column=2)
             if h["off_gender"] == "F":
                 off_cell.fill = fill_girl
                 off_cell.font = font_girl
@@ -1018,7 +1015,7 @@ def export_backstage_handoffs_excel(
             )
 
             # Column 5: ATTACH TO actor cell -> Blue for Guys, Pink for Girls
-            on_cell = ws.cell(row=r_num, column=5)
+            on_cell = ws.cell(row=r_num, column=4)
             if h["on_gender"] == "F":
                 on_cell.fill = fill_girl
                 on_cell.font = font_girl
@@ -1030,7 +1027,7 @@ def export_backstage_handoffs_excel(
                 horizontal="center", vertical="center"
             )
 
-            alert_c = ws.cell(row=r_num, column=8)
+            alert_c = ws.cell(row=r_num, column=6)
             if "QUICK CHANGE" in h["urgency"]:
                 alert_c.fill = fill_quick
                 alert_c.font = font_quick
@@ -1044,7 +1041,7 @@ def export_backstage_handoffs_excel(
     for col in ws.columns:
         max_len = max(len(str(cell.value or "")) for cell in col)
         col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 42)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 25)
 
     ws.freeze_panes = "A5"
     wb.save(output_filename)
