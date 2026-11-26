@@ -12,7 +12,7 @@
 2. **Stage 2 — Behringer WING Show & Snippet Generator (`csv_to_wing_show.py`):** Converts the master tracking chart and show breakdown into a native Behringer WING / Wing-Edit `showfile.1` (`.show`) playlist and sequential `.snip` files with scene-specific character scribble strips, color-coded stage status, and dynamic **USER 1** custom fader banks.
 
 
-3. **Stage 3 — Markdown Script Mic Annotator (`annotate_script_mics.py`):** Cross-references the master tracking chart with a Markdown script (`.md`) to append each character's scene-specific wireless channel number to their **bolded** dialogue cues (e.g., `**Scrooge**` $\rightarrow$ `**Scrooge (1)**`).
+3. **Stage 3 — Markdown Script Mic Annotator (`annotate_script_mics.py`):** Cross-references the master tracking chart with a Markdown script (`.md`) to append each character's scene-specific wireless channel number to their **bolded** dialogue cues (e.g., `**Protagonist**` $\rightarrow$ `**Protagonist (1)**`).
 
 
 
@@ -55,29 +55,29 @@ Defines your production's cast-by-scene breakdown hierarchically by Act (`act_1`
   "act_1": {
     "scene_1": [
       {
-        "character_name": "Scrooge",
-        "associated_actor": "Dean Stults",
+        "character_name": "Protagonist",
+        "associated_actor": "Alex Rivera",
         "gender": "M"
       },
       {
-        "character_name": "Storyteller",
-        "associated_actor": "KoBe Patterson",
+        "character_name": "Narrator",
+        "associated_actor": "Jordan Taylor",
         "gender": "M"
       },
       {
-        "character_name": "Caroler A",
-        "associated_actor": "Sarah Grace Estanqueiro",
+        "character_name": "Chorus A",
+        "associated_actor": "Samantha Patel",
         "gender": "F"
       }
     ],
     "scene_2": [
       {
-        "character_name": "Scrooge",
-        "associated_actor": "Dean Stults"
+        "character_name": "Protagonist",
+        "associated_actor": "Alex Rivera"
       },
       {
-        "character_name": "Bob Cratchit",
-        "associated_actor": "Marshall Chaney",
+        "character_name": "Mentor",
+        "associated_actor": "Mike Smith",
         "gender": "M"
       }
     ],
@@ -86,17 +86,17 @@ Defines your production's cast-by-scene breakdown hierarchically by Act (`act_1`
       "cast": [
         {
           "character_name": "Child A",
-          "associated_actor": "Gwyneth Smith",
+          "associated_actor": "Riley Chen",
           "gender": "F"
         },
         {
           "character_name": "Child B",
-          "associated_actor": "Lincoln Chaney",
+          "associated_actor": "Taylor Kim",
           "gender": "M"
         },
         {
-          "character_name": "Tiny Tim",
-          "associated_actor": "Connor Wood",
+          "character_name": "Apprentice",
+          "associated_actor": "Jamie Ortiz",
           "gender": "M"
         }
       ]
@@ -105,8 +105,8 @@ Defines your production's cast-by-scene breakdown hierarchically by Act (`act_1`
   "act_2": {
     "scene_1": [
       {
-        "character_name": "Scrooge",
-        "associated_actor": "Dean Stults"
+        "character_name": "Protagonist",
+        "associated_actor": "Alex Rivera"
       }
     ]
   }
@@ -120,32 +120,32 @@ If you prefer to keep gender classifications separate from `show_data.json`, pas
 
 ```json
 {
-  "guys": ["Dean Stults", "KoBe Patterson", "Marshall Chaney"],
-  "girls": ["Sarah Grace Estanqueiro", "Kaitlyn Lawson", "Gwyneth Smith"]
+  "guys": ["Alex Rivera", "Jordan Taylor", "Mike Smith"],
+  "girls": ["Sam Patel", "Casey Brooks", "Riley Chen"]
 }
 
 ```
 
 ### 3. Custom Fader Layer Grouping (`layer_groups.json` — *Optional*)
 
-Controls the left-to-right fader ordering on the Behringer WING's custom **USER 1** layers so families and ensembles (such as the Cratchits, Villagers, or Carolers) stay grouped together on adjacent faders:
+Controls the left-to-right fader ordering on the Behringer WING's custom **USER 1** layers so families, groups and ensembles stay grouped together on adjacent faders:
 
 ```json
 {
   "group_order": {
     "Leads": 1,
-    "Cratchit": 10,
+    "Principal Family": 10,
     "Villagers": 20,
-    "Carolers": 30
+    "Chorus": 30
   },
   "character_to_group": {
-    "Scrooge": "Leads",
-    "Bob Cratchit": "Cratchit",
-    "Tiny Tim": "Cratchit",
+    "Protagonist": "Leads",
+    "Mentor": "Principal Family",
+    "Apprentice": "Principal Family",
     "Villager 1": "Villagers",
     "Villager 2": "Villagers",
-    "Caroler A": "Carolers",
-    "Caroler B": "Carolers"
+    "Chorus A": "Chorus",
+    "Chorus B": "Chorus"
   }
 }
 
@@ -158,11 +158,11 @@ A Markdown script containing Act/Scene headings (`# Act 1`, `## Scene 2`, `### A
 ```markdown
 ## Act 1 - Scene 2
 
-**Storyteller**: Scrooge never painted out Old Marley's name.
+**Narrator**: The curtain rises on the town square just before dawn.
 
-**Scrooge:** Bah! Humbug!
+**Protagonist:** We must make haste before the clock strikes noon.
 
-**Bob Cratchit**: A merry Christmas, uncle! God save you!
+**Mentor**: Right behind you—let's gather the rest of the company!
 
 ```
 
@@ -221,7 +221,7 @@ A Markdown script containing Act/Scene headings (`# Act 1`, `## Scene 2`, `### A
 
 ### Generated Operational Deliverables
 
-Running `optimize_mics.py` produces three types of output files:
+Running `optimize_mics.py` produces three paired `.csv` and styled Excel (`.xlsx`) operational deliverables:
 
 #### 1. Master Sound Tracking Sheet (`mic_tracking_sheet.csv` / `.xlsx`)
 
@@ -249,7 +249,7 @@ Designed for the Front-of-House (FOH) sound engineer:
 
 
 
-#### 2. Backstage Handoff & Quick-Change Cue Sheet (`backstage_mic_handoffs.xlsx`)
+#### 2. Backstage Handoff & Quick-Change Cue Sheet (`backstage_mic_handoffs.csv` / `.xlsx`)
 
 Designed for A2s and backstage wardrobe dressers:
 
@@ -263,7 +263,7 @@ Designed for A2s and backstage wardrobe dressers:
 
 
 
-#### 3. Top-of-Show / Pre-Show Rigging Preset (`top_of_show_preset.xlsx`)
+#### 3. Top-of-Show / Pre-Show Rigging Preset (`top_of_show_preset.csv` / `.xlsx`)
 
 Designed for half-hour pre-show rigging and line checks:
 
@@ -366,7 +366,7 @@ Converts `mic_tracking_sheet.csv` and `show_data.json` into a USB-ready folder c
 * Automatically selects and populates **Left USER 1** (Layer `6`) with only the active onstage actors (`X`) in the current scene (up to 12 channels), spilling overflow actors (`13–24`) onto **Center USER 1** (Layer `5`) and blanking unused slots (`"type": "OFF"`).
 
 
-* Supports custom family/ensemble grouping via `layer_groups.json` (keeping families like the Cratchits together, and sorting numbered roles `1–6` and lettered roles `A–E` sequentially).
+* Supports custom family/ensemble grouping via `layer_groups.json` (keeping ensembles together, and sorting numbered roles `1–6` and lettered roles `A–E` sequentially).
 
 
 
@@ -377,7 +377,7 @@ Converts `mic_tracking_sheet.csv` and `show_data.json` into a USB-ready folder c
 ```bash
 python csv_to_wing_show.py mic_tracking_sheet.csv show_data.json \
   --outdir WING_SHOW \
-  --show-name SCROOGE \
+  --show-name MY_SHOW \
   --style character \
   --group-config layer_groups.json
 
@@ -418,7 +418,7 @@ python csv_to_wing_show.py mic_tracking_sheet.csv show_data.json \
 1. Copy the entire `WING_SHOW` folder (keeping the `.show` file and all `.snip` files together in the same directory) onto a FAT32 USB drive—or transfer directly to the WING's internal storage using **USB Disk Mode** (`SETUP` $\rightarrow$ `GENERAL` $\rightarrow$ `DISK`).
 
 
-2. Press **LIBRARY** on the WING surface, navigate to the **SHOW** tab, select `SCROOGE.show`, and tap **LOAD**.
+2. Press **LIBRARY** on the WING surface, navigate to the **SHOW** tab, select `MY_SHOW.show`, and tap **LOAD**.
 
 
 3. Ensure **Recall Safes** (`SHOW` $\rightarrow$ `SAFE`) do not block **Channel Name/Color** or **Surface Layer** changes.
@@ -445,10 +445,10 @@ Cross-references `mic_tracking_sheet.csv` with a Markdown script (`.md`) and aut
 * **Formatting Preservation:** Only modifies `**bold**` text matching a known character name from your tracking CSV—leaving stage directions, dialogue text, and non-character bolded emphasis completely untouched.
 
 
-* **Idempotent Execution:** Automatically detects existing mic tags like `**Scrooge (1)**` so running the script multiple times will never double-tag names (e.g., `**Scrooge (1) (1)**`).
+* **Idempotent Execution:** Automatically detects existing mic tags like `**Protagonist (1)**` so running the script multiple times will never double-tag names (e.g., `**Protagonist (1) (1)**`).
 
 
-* **Colon & Punctuation Safe:** Handles colons placed either inside or outside bold tags (`**Scrooge:**` becomes `**Scrooge (1):**`, and `**Scrooge**:` becomes `**Scrooge (1)**:`).
+* **Colon & Punctuation Safe:** Handles colons placed either inside or outside bold tags (`**Protagonist:**` becomes `**Protagonist (1):**`, and `**Protagonist**:` becomes `**Protagonist (1)**:`).
 
 
 
@@ -483,9 +483,9 @@ Given a `mic_tracking_sheet.csv` containing:
 
 ```csv
 Mic #,Actor Name,Character(s),Act 1 - Scene 1,Act 1 - Scene 2,Act 1 - Scene 3
-Mic 1,Dean Stults,Scrooge,,X,
-Mic 2,KoBe Patterson,Storyteller,X,X,
-Mic 3,Marshall Chaney,Bob Cratchit,,X,X
+Mic 1,Alex Rivera,Protagonist,,X,
+Mic 2,Jordan Taylor,Narrator,X,X,
+Mic 3,Mike Smith,Mentor,,X,X
 
 ```
 
@@ -494,10 +494,10 @@ Running `annotate_script_mics.py` on the `script.md` example produces `script_wi
 ```markdown
 ## Act 1 - Scene 2
 
-**Storyteller (2)**: Scrooge never painted out Old Marley's name.
+**Narrator (2)**: The curtain rises on the town square just before dawn.
 
-**Scrooge (1):** Bah! Humbug!
+**Protagonist (1):** We must make haste before the clock strikes noon.
 
-**Bob Cratchit (3)**: A merry Christmas, uncle! God save you!
+**Mentor (3)**: Right behind you—let's gather the rest of the company!
 
 ```
