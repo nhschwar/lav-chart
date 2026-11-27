@@ -6,6 +6,11 @@
 
 ## Pipeline Overview
 
+0. **Upstream Ingestion (100% Local / Offline):**
+   * **Stage 0a — Local PDF-to-Markdown Converter (`pdf_to_md.py`):** Converts digital or scanned PDF scripts into clean Markdown with normalized Act/Scene headings and bold speaker cues using local `pdftotext`, `pdftoppm`, on-device macOS Apple Vision or local `tesseract` OCR, and an optional strictly localhost-only Ollama cleanup pass.
+   * **Stage 0b — Interactive Script Stripper (`strip_script.py`):** A `git add -p`-style terminal reviewer for cutting front matter, stage directions, or cut scenes hunk-by-hunk (`y/n/s/e/a/d/u///q/?`) with resumable session state.
+   * **Stage 0c — Script + Cast List Builder (`build_show_data.py`):** Combines the cut Markdown script, a Markdown/text cast list (`cast_list.md`), and optional persistent `overrides.json` into `show_data.json` with fuzzy-match diagnostics.
+
 1. **Stage 1 — Wireless Microphone Allocation Optimizer (`optimize_mics.py`):** Uses a frequency-aware greedy constructor and multi-pass simulated annealing to assign wireless channels across every act and scene—minimizing physical pack swaps, maximizing dressing turnaround buffers, locking leads onto dedicated lower channels, and exporting the master `.csv` plus three styled `.xlsx` operational workbooks.
 
 
@@ -13,6 +18,8 @@
 
 
 3. **Stage 3 — Markdown Script Mic Annotator (`annotate_script_mics.py`):** Cross-references the master tracking chart with a Markdown script (`.md`) to append each character's scene-specific wireless channel number to their **bolded** dialogue cues (e.g., `**Protagonist**` $\rightarrow$ `**Protagonist (1)**`).
+
+4. **End-to-End Orchestrator (`run_lavs.sh`):** Chains all stages together reading from `Inputs/` and writing versioned builds into `Outputs/v1/`, `Outputs/v2/`, ... with `Outputs/latest`, `Outputs/manifest.json`, and embedded version metadata across every deliverable.
 
 
 
@@ -460,9 +467,10 @@ python annotate_script_mics.py path/to/script.md \
 
 ## Automated Versioned Pipeline (`run_lavs.sh`)
 
-Run all stages together reading from `Inputs/` and writing into auto-incrementing versioned directories (`Outputs/v1/`, `Outputs/v2/`, ... + `Outputs/latest` symlink + `Outputs/manifest.json`):
+Run the pipeline reading from `Inputs/` and writing into auto-incrementing versioned directories (`Outputs/v1/`, `Outputs/v2/`, ... + `Outputs/latest` symlink + `Outputs/manifest.json`):
 
 ```bash
+# Standard build (from Inputs/show_data.json OR Inputs/script_cut.md + Inputs/cast_list.md)
 ./run_lavs.sh \
   --inputs Inputs \
   --outputs Outputs \
@@ -470,13 +478,52 @@ Run all stages together reading from `Inputs/` and writing into auto-incrementin
   --mics 28 \
   --passes 75 \
   --iters 5000 \
-  --note "Initial Scrooge build"
+  --note "A1.S3 marked quick scene; added Bob Cratchit to A2.S4"
+
+# Starting from a raw PDF script (local OCR -> interactive strip -> full versioned build)
+./run_lavs.sh --from-pdf --strip --show-name SCROOGE --note "Initial build from PDF"
 ```
 
-* Auto-detects `Inputs/layer_groups.json`, `Inputs/cast_gender.json`, and `Inputs/script_cut.md` (or `*script*.md`) when present.
+* Auto-detects `Inputs/cast_list.md` (or `.txt`), `Inputs/overrides.json`, `Inputs/layer_groups.json`, `Inputs/cast_gender.json`, and `Inputs/script_cut.md` when present.
+* If `cast_list.md` + `script_cut.md` exist, runs Stage 0c (`build_show_data.py`) automatically; otherwise falls back cleanly to `Inputs/show_data.json`.
 * Stamps the version label, timestamp, and `--note` into CSV/Excel subtitles, Excel print footers & workbook properties, the Behringer WING `.show` filename & Soundcheck cue, and the annotated Markdown header.
 * Saves an exact `show_data.json` snapshot and `build_info.json` (including RNG `--seed` and SHA-256 input hashes) inside each `Outputs/vN/` directory.
 * Pass `--overwrite` to re-run into the latest version folder without incrementing, or `--version <label>` to set an explicit version tag.
+
+---
+
+## Upstream Prep Stages (`pdf_to_md.py`, `strip_script.py`, `build_show_data.py`)
+
+### Stage 0a: Local-Only PDF-to-Markdown (`pdf_to_md.py`)
+
+Runs 100% locally so copyrighted scripts never touch cloud services:
+
+```bash
+python3 pdf_to_md.py Inputs/script.pdf -o Inputs/script_raw.md
+# Force Tesseract or test pages 1-5 first:
+python3 pdf_to_md.py Inputs/script.pdf -o Inputs/script_raw.md --pages 1-5 --ocr tesseract
+# Optional strictly localhost-only Ollama cleanup:
+python3 pdf_to_md.py Inputs/script.pdf -o Inputs/script_raw.md --local-llm llama3.2
+```
+
+### Stage 0b: Interactive Script Stripper (`strip_script.py`)
+
+Reviews a raw Markdown script hunk-by-hunk (`y` keep, `n` cut, `s` split, `e` edit in `$EDITOR`, `a`/`d` keep/cut rest of scene, `u` undo, `/` search, `q` save & quit to resume later):
+
+```bash
+python3 strip_script.py Inputs/script_raw.md -o Inputs/script_cut.md --drop-frontmatter
+```
+
+### Stage 0c: Script + Cast List to `show_data.json` (`build_show_data.py`)
+
+Parses Act/Scene headings and speaker cues from `script_cut.md`, joins them against a Markdown/text cast list (`Inputs/cast_list.md`), and merges persistent manual tweaks from `Inputs/overrides.json` (`aliases`, `group_expansions`, `ignore_cues`, `scene_weights` / `quick_scenes`, `add_characters`, `remove_characters`):
+
+```bash
+python3 build_show_data.py Inputs/script_cut.md Inputs/cast_list.md \
+  --overrides Inputs/overrides.json \
+  --output show_data.json \
+  --strict
+```
 
 ### Example Input & Annotated Output
 

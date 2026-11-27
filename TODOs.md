@@ -1,17 +1,9 @@
-TODOs
+# TODOs
 
-Ideas for future
+## Completed
 
-Make the pdf scan to md python script sthat got me to the .md script - I had a thorw away version that wasn't included in this repo.
-
-Better way of stripping scripts? Maybe a prompt for hunks for feedback of what to keep like with git add -p
-
-Cast list + Script actors parsing to scene_data.json?
-
-* Maybe we make an assumption if all scenes are headers, and all character names are in bold (or formatted with a : ) I should be able to turn that into a json input in combination with the cast list
-
-* Basically I want to get from scanned pdf or digital version of a script + cast list to lav chart and all outputs
-
-Chain together all existing scripts to be called with a bash script, with input folder, and output folder. Scripts that need outputs from earlier python scripts will draw from output folder.
-
-Embed versioning data in output files - if I have to change one of my scenes to a short scene, or put someone on stage when there isn't a line for them and they don't have enough time for a change, or other manual change to generation, I want to be able to see v4 or something in the metadata or subtitles
+- [x] **Local-only PDF scan/digital to Markdown (`pdf_to_md.py`):** Per-page digital text (`pdftotext`) + local OCR (on-device macOS Apple Vision / `tesseract`) + optional strictly localhost-only Ollama cleanup, normalizing Act/Scene headers and bold character cues.
+- [x] **Interactive script stripper (`strip_script.py`):** `git add -p`-style hunk reviewer (`y/n/s/e/a/d/u///q/?`) with `$EDITOR` editing and resumable `.strip_state.json`.
+- [x] **Cast list + script parser to `show_data.json` (`build_show_data.py`):** Parses Markdown/text cast lists (`cast_list.md`) + `script_cut.md` + persistent `overrides.json` (aliases, group expansions, quick scenes, non-speaking onstage actors) with fuzzy-match diagnostics.
+- [x] **Chained pipeline with Input/Output folders (`run_lavs.sh`):** Orchestrates all stages from `Inputs/` into auto-incrementing `Outputs/vN/` directories with `Outputs/latest` symlink and `Outputs/manifest.json`.
+- [x] **Embedded versioning metadata:** Stamps version tag, timestamp, and revision `--note` into CSV/Excel subtitles, Excel print footers & workbook properties, Behringer WING `.show` filename & Soundcheck cue info, and annotated Markdown headers.

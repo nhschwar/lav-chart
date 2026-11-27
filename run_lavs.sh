@@ -22,6 +22,10 @@ GROUP_CONFIG=""
 INIT_SNAP=""
 SCRIPT_MD=""
 RAW_SCRIPT_MD=""
+PDF_FILE=""
+RUN_FROM_PDF=0
+OCR_ENGINE="auto"
+LOCAL_LLM=""
 RUN_STRIP=0
 VERSION_LABEL=""
 OVERWRITE=0
@@ -45,6 +49,10 @@ Options:
   --iters N            Iterations per annealing pass (default: 5000)
   --perf-days LIST     Comma-separated check-off columns for Top-of-Show sheet
   --style STYLE        WING scribble style: character|char_actor|actor_first|actor_full
+  --pdf PATH           PDF script file for --from-pdf (auto-detects <inputs>/*.pdf)
+  --from-pdf           Run local-only pdf_to_md.py (Stage 0a) into <inputs>/script_raw.md
+  --ocr ENGINE         Local OCR engine for --from-pdf: auto|vision|tesseract (default: auto)
+  --local-llm MODEL    Optional local Ollama model for post-OCR cleanup
   --raw-script PATH    Raw Markdown script for --strip (auto-detects <inputs>/script_raw.md)
   --strip              Run interactive script stripper (strip_script.py) before building
   --cast-list PATH     Markdown/text cast list (auto-detects <inputs>/cast_list.md or .txt)
@@ -75,6 +83,10 @@ while [[ $# -gt 0 ]]; do
     --iters)        ITERS="$2"; shift 2 ;;
     --perf-days)    PERF_DAYS="$2"; shift 2 ;;
     --style)        STYLE="$2"; shift 2 ;;
+    --pdf)          PDF_FILE="$2"; shift 2 ;;
+    --from-pdf)     RUN_FROM_PDF=1; shift ;;
+    --ocr)          OCR_ENGINE="$2"; shift 2 ;;
+    --local-llm)    LOCAL_LLM="$2"; shift 2 ;;
     --raw-script)   RAW_SCRIPT_MD="$2"; shift 2 ;;
     --strip)        RUN_STRIP=1; shift ;;
     --cast-list)    CAST_LIST="$2"; shift 2 ;;
@@ -140,6 +152,36 @@ fi
 
 if [[ -z "$GROUP_CONFIG" && -f "${INPUT_DIR}/layer_groups.json" ]]; then
   GROUP_CONFIG="${INPUT_DIR}/layer_groups.json"
+fi
+
+if [[ -z "$PDF_FILE" ]]; then
+  for candidate in "${INPUT_DIR}"/*.pdf; do
+    if [[ -f "$candidate" ]]; then
+      PDF_FILE="$candidate"
+      break
+    fi
+  done
+fi
+
+# Optional Stage 0a: Local-only PDF -> Markdown conversion
+if [[ "$RUN_FROM_PDF" -eq 1 ]]; then
+  if [[ -z "$PDF_FILE" || ! -f "$PDF_FILE" ]]; then
+    echo "Error: --from-pdf requested, but no PDF found (expected '${INPUT_DIR}/*.pdf' or --pdf)." >&2
+    exit 1
+  fi
+  TARGET_RAW="${RAW_SCRIPT_MD:-${INPUT_DIR}/script_raw.md}"
+  PDF_ARGS=(
+    "${SCRIPT_DIR}/pdf_to_md.py"
+    "$PDF_FILE"
+    --output "$TARGET_RAW"
+    --ocr "$OCR_ENGINE"
+  )
+  if [[ -n "$LOCAL_LLM" ]]; then
+    PDF_ARGS+=(--local-llm "$LOCAL_LLM")
+  fi
+  echo "[Stage 0a] Converting PDF to Markdown locally (${PDF_FILE} -> ${TARGET_RAW})..."
+  "$PYTHON" "${PDF_ARGS[@]}"
+  RAW_SCRIPT_MD="$TARGET_RAW"
 fi
 
 if [[ -z "$RAW_SCRIPT_MD" && -f "${INPUT_DIR}/script_raw.md" ]]; then
