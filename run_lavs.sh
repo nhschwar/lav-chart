@@ -35,6 +35,7 @@ SKIP_PARSE=0
 STRICT_PARSE=0
 SKIP_WING=0
 SKIP_ANNOTATE=0
+NO_VENV=0
 
 usage() {
   cat <<'EOF'
@@ -69,6 +70,7 @@ Options:
   --strict-parse       Fail Stage 0c if script contains unmatched speaker cues
   --skip-wing          Skip Stage 2 (Behringer WING show generation)
   --skip-annotate      Skip Stage 3 (Markdown script annotation)
+  --no-venv            Skip automatic .venv creation / openpyxl installation
   -h, --help           Show this help message
 EOF
 }
@@ -103,6 +105,7 @@ while [[ $# -gt 0 ]]; do
     --strict-parse) STRICT_PARSE=1; shift ;;
     --skip-wing)    SKIP_WING=1; shift ;;
     --skip-annotate) SKIP_ANNOTATE=1; shift ;;
+    --no-venv)      NO_VENV=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *)
       echo "Error: Unknown option '$1'" >&2
@@ -124,6 +127,40 @@ fi
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
   echo "Error: Python interpreter '$PYTHON' not found." >&2
   exit 1
+fi
+
+# Auto-bootstrap local .venv with openpyxl if not already installed
+if [[ "$NO_VENV" -eq 0 && -z "${PYTHON_BIN:-}" ]]; then
+  if ! "$PYTHON" -c "import openpyxl" >/dev/null 2>&1; then
+    VENV_DIR="${SCRIPT_DIR}/.venv"
+    VENV_PY="${VENV_DIR}/bin/python3"
+    VENV_PIP="${VENV_DIR}/bin/pip"
+    REQ_FILE="${SCRIPT_DIR}/requirements.txt"
+
+    echo "[Setup] 'openpyxl' not found in '${PYTHON}'. Bootstrapping local venv at '${VENV_DIR}'..."
+    VENV_OK=1
+    if [[ ! -x "$VENV_PY" ]]; then
+      if ! "$PYTHON" -m venv "$VENV_DIR"; then
+        VENV_OK=0
+      fi
+    fi
+
+    if [[ "$VENV_OK" -eq 1 ]] && ! "$VENV_PY" -c "import openpyxl" >/dev/null 2>&1; then
+      if [[ -f "$REQ_FILE" ]]; then
+        "$VENV_PIP" install --quiet --retries 1 --timeout 5 -r "$REQ_FILE" || VENV_OK=0
+      else
+        "$VENV_PIP" install --quiet --retries 1 --timeout 5 openpyxl || VENV_OK=0
+      fi
+    fi
+
+    if [[ "$VENV_OK" -eq 1 ]] && "$VENV_PY" -c "import openpyxl" >/dev/null 2>&1; then
+      PYTHON="$VENV_PY"
+      echo "[Setup] Using '${PYTHON}' (openpyxl ready)."
+    else
+      echo "Warning: Could not install openpyxl into '${VENV_DIR}' (offline or pip unavailable)." >&2
+      echo "         Continuing with '${PYTHON}' — .xlsx exports will be skipped (pass --no-venv to suppress this check)." >&2
+    fi
+  fi
 fi
 
 if [[ ! -d "$INPUT_DIR" ]]; then

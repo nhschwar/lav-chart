@@ -489,6 +489,7 @@ Run the pipeline reading from `Inputs/` and writing into auto-incrementing versi
 ```
 
 * Auto-detects `Inputs/cast_list.md` (or `.txt`), `Inputs/overrides.json`, `Inputs/layer_groups.json`, `Inputs/cast_gender.json`, and `Inputs/script_cut.md` when present.
+* Automatically creates a local `.venv` and installs `openpyxl` from `requirements.txt` if missing (falling back gracefully when offline; pass `--no-venv` to skip).
 * If `cast_list.md` + `script_cut.md` exist, runs Stage 0c (`build_show_data.py`) automatically; otherwise falls back cleanly to `Inputs/show_data.json`.
 * Stamps the version label, timestamp, and `--note` into CSV/Excel subtitles, Excel print footers & workbook properties, the Behringer WING `.show` filename & Soundcheck cue, and the annotated Markdown header.
 * Saves an exact `show_data.json` snapshot and `build_info.json` (including RNG `--seed` and SHA-256 input hashes) inside each `Outputs/vN/` directory.
