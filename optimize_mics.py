@@ -256,7 +256,12 @@ def has_sufficient_turnaround(scenes, off_t, on_t, min_buffer_weight=1.0):
 
 
 def check_validity_and_cost(
-    assignment, scenes, num_mics=28, actor_total_scenes=None
+    assignment,
+    scenes,
+    num_mics=28,
+    actor_total_scenes=None,
+    actor_gender=None,
+    cross_gender_penalty=0.20,
 ):
     """Validates capacity and turnaround buffers; calculates multi-objective cost."""
     num_scenes = len(scenes)
@@ -345,6 +350,22 @@ def check_validity_and_cost(
             assigned_mics.sort()
             spread = assigned_mics[-1] - assigned_mics[0]
             cost += (spread / num_mics) * 8.0
+
+    # Objective B.6: Same-gender handoff tie-breaker (lowest priority)
+    # Kept strictly smaller than continuity, turnaround buffer, swap relegation,
+    # channel hierarchy, and ensemble spread so it only breaks near-ties.
+    if actor_gender and cross_gender_penalty > 0:
+        for mic, timeline in mic_usage.items():
+            prev_actor = None
+            for t in range(num_scenes):
+                curr_actor = timeline[t]
+                if curr_actor is not None:
+                    if prev_actor is not None and prev_actor != curr_actor:
+                        g_prev = actor_gender.get(prev_actor)
+                        g_curr = actor_gender.get(curr_actor)
+                        if g_prev and g_curr and g_prev != g_curr:
+                            cost += cross_gender_penalty
+                    prev_actor = curr_actor
 
     return True, cost
 
@@ -440,6 +461,7 @@ def optimize_microphone_assignments(
     num_passes=8,
     iterations_per_pass=3500,
     external_gender_map=None,
+    cross_gender_penalty=0.20,
 ):
     scenes, actor_gender, actor_all_chars = parse_show_data(
         show_json, external_gender_map=external_gender_map
@@ -457,7 +479,12 @@ def optimize_microphone_assignments(
             scenes, num_mics, actor_total_scenes
         )
         is_valid, current_cost = check_validity_and_cost(
-            current_assignment, scenes, num_mics, actor_total_scenes
+            current_assignment,
+            scenes,
+            num_mics,
+            actor_total_scenes,
+            actor_gender=actor_gender,
+            cross_gender_penalty=cross_gender_penalty,
         )
 
         temp = 100.0
@@ -493,7 +520,12 @@ def optimize_microphone_assignments(
                     candidate[t][a] = random.choice(available_mics)
 
             cand_valid, cand_cost = check_validity_and_cost(
-                candidate, scenes, num_mics, actor_total_scenes
+                candidate,
+                scenes,
+                num_mics,
+                actor_total_scenes,
+                actor_gender=actor_gender,
+                cross_gender_penalty=cross_gender_penalty,
             )
 
             if cand_valid:
@@ -511,6 +543,48 @@ def optimize_microphone_assignments(
                         }
 
             temp *= cooling
+
+    # Final deterministic polish: swap mic tails (m1 <-> m2 for all s >= t)
+    # whenever a multi-scene stint swap strictly lowers total cost (e.g., resolves
+    # same-gender handoff ties without breaking actor continuity).
+    if best_global_assignment is not None:
+        improved = True
+        polish_rounds = 0
+        while improved and polish_rounds < 10:
+            improved = False
+            polish_rounds += 1
+            for t in range(1, len(scenes)):
+                if not scenes[t]["actors"]:
+                    continue
+                for m1 in range(1, num_mics + 1):
+                    for m2 in range(m1 + 1, num_mics + 1):
+                        cand = {
+                            s: dict(assigns)
+                            for s, assigns in best_global_assignment.items()
+                        }
+                        changed = False
+                        for s in range(t, len(scenes)):
+                            for actor, m in list(cand[s].items()):
+                                if m == m1:
+                                    cand[s][actor] = m2
+                                    changed = True
+                                elif m == m2:
+                                    cand[s][actor] = m1
+                                    changed = True
+                        if not changed:
+                            continue
+                        cand_valid, cand_cost = check_validity_and_cost(
+                            cand,
+                            scenes,
+                            num_mics,
+                            actor_total_scenes,
+                            actor_gender=actor_gender,
+                            cross_gender_penalty=cross_gender_penalty,
+                        )
+                        if cand_valid and cand_cost < best_global_cost - 1e-9:
+                            best_global_assignment = cand
+                            best_global_cost = cand_cost
+                            improved = True
 
     return (
         scenes,
@@ -1390,6 +1464,12 @@ def main():
         help="Optional random seed for reproducible simulated annealing results",
     )
     parser.add_argument(
+        "--cross-gender-penalty",
+        type=float,
+        default=0.20,
+        help="Lowest-priority tie-breaker penalty for cross-gender pack handoffs (default: 0.20; 0 to disable)",
+    )
+    parser.add_argument(
         "--version",
         default=None,
         help="Optional build version label (e.g., 'v4') embedded in output subtitles & metadata",
@@ -1460,6 +1540,7 @@ def main():
         num_passes=args.passes,
         iterations_per_pass=args.iters,
         external_gender_map=external_gender_map,
+        cross_gender_penalty=args.cross_gender_penalty,
     )
 
     if not best_assignment:
@@ -1525,9 +1606,14 @@ def main():
             "Install it with 'pip install openpyxl' to generate Excel workbooks."
         )
 
+    same_gender_handoffs = sum(
+        1 for h in handoffs if h["off_gender"] == h["on_gender"]
+    )
+    cross_gender_handoffs = len(handoffs) - same_gender_handoffs
     print(
-        f"Finished optimization. Minimized objective cost: {cost:.2f}. All"
-        " operational paperwork generated."
+        f"Finished optimization. Minimized objective cost: {cost:.2f}. "
+        f"Handoffs: {len(handoffs)} total ({same_gender_handoffs} same-gender, "
+        f"{cross_gender_handoffs} cross-gender). All operational paperwork generated."
     )
 
 

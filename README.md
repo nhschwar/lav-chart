@@ -211,6 +211,9 @@ A Markdown script containing Act/Scene headings (`# Act 1`, `## Scene 2`, `### A
 5. **Scene-Ensemble Clustering:** Rewards grouping characters who appear together in the same scene onto adjacent channel numbers.
 
 
+6. **Same-Gender Handoff Tie-Breaker *(Lowest Priority)*:** Applies a tiny penalty (`$0.20$` by default, configurable via `--cross-gender-penalty`) to cross-gender pack handoffs (Guy $\leftrightarrow$ Girl) so that when all higher-priority constraints and objectives are equal, packs stay within the same dressing room / tech side (Guy $\rightarrow$ Guy, Girl $\rightarrow$ Girl).
+
+
 
 #### Algorithmic Pipeline
 
@@ -314,6 +317,7 @@ python optimize_mics.py show_data.json \
  |
 | `--iters` | `3500` | Optimization iterations per annealing pass. |
 | `--seed` | `None` | Optional RNG seed for reproducible simulated annealing runs. |
+| `--cross-gender-penalty` | `0.20` | Lowest-priority tie-breaker penalty for cross-gender pack handoffs (`0` to disable). |
 | `--version` | `None` | Optional build version label (e.g., `v4`) embedded in subtitles, print footers, and workbook metadata. |
 | `--note` | `""` | Optional revision note embedded alongside version metadata. |
 | `--perf-days` | `Tech,Sat,Mon,Tues,Wed,Thurs,Frid,Sat,Sat` | Comma-separated performance check-off columns for the Top-of-Show sheets. |
