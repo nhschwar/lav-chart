@@ -1,5 +1,7 @@
 import argparse
 import csv
+from datetime import datetime
+import os
 import re
 from collections import defaultdict
 
@@ -69,11 +71,23 @@ def parse_tracking_chart(csv_path):
     return scene_char_to_mic, scene_idx_char_to_mic, global_char_to_mic
 
 
-def annotate_markdown_script(md_path, csv_path, output_path):
+def _strip_existing_version_header(lines):
+    """Removes a previously injected lav-chart version header so runs stay idempotent."""
+    idx = 0
+    if idx < len(lines) and lines[idx].startswith("<!-- lav-chart-meta:"):
+        idx += 1
+        if idx < len(lines) and lines[idx].startswith("> *Lav Chart "):
+            idx += 1
+        while idx < len(lines) and not lines[idx].strip():
+            idx += 1
+    return lines[idx:]
+
+
+def annotate_markdown_script(md_path, csv_path, output_path, version=None, note=""):
     scene_char_to_mic, scene_idx_char_to_mic, global_char_to_mic = parse_tracking_chart(csv_path)
 
     with open(md_path, mode="r", encoding="utf-8") as f:
-        lines = f.readlines()
+        lines = _strip_existing_version_header(f.readlines())
 
     current_act = 1
     current_scene = None
@@ -123,6 +137,23 @@ def annotate_markdown_script(md_path, csv_path, output_path):
         return match.group(0)
 
     output_lines = []
+    if version or (note and note.strip()):
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        meta_fields = [f"generated={ts}"]
+        display_parts = []
+        if version:
+            meta_fields.insert(0, f"version={version}")
+            display_parts.append(f"Lav Chart {version}")
+        else:
+            display_parts.append("Lav Chart")
+        display_parts.append(f"Generated {ts}")
+        if note and note.strip():
+            clean_note = note.strip().replace("-->", "--")
+            meta_fields.append(f"note={clean_note}")
+            display_parts.append(clean_note)
+        output_lines.append(f"<!-- lav-chart-meta: {' | '.join(meta_fields)} -->\n")
+        output_lines.append(f"> *{' — '.join(display_parts)}*\n\n")
+
     for line in lines:
         act_match = act_pattern.search(line)
         if act_match:
@@ -135,6 +166,10 @@ def annotate_markdown_script(md_path, csv_path, output_path):
 
         updated_line = bold_pattern.sub(replace_bold_match, line)
         output_lines.append(updated_line)
+
+    out_parent = os.path.dirname(os.path.abspath(output_path))
+    if out_parent:
+        os.makedirs(out_parent, exist_ok=True)
 
     with open(output_path, mode="w", encoding="utf-8") as f:
         f.writelines(output_lines)
@@ -157,6 +192,22 @@ if __name__ == "__main__":
         default="script_with_mics.md",
         help="Path for the annotated output Markdown file (default: script_with_mics.md)",
     )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Optional build version label (e.g., 'v4') embedded at the top of the annotated script",
+    )
+    parser.add_argument(
+        "--note",
+        default="",
+        help="Optional revision note embedded alongside version metadata",
+    )
 
     args = parser.parse_args()
-    annotate_markdown_script(args.script_md, args.csv, args.output)
+    annotate_markdown_script(
+        args.script_md,
+        args.csv,
+        args.output,
+        version=args.version,
+        note=args.note,
+    )

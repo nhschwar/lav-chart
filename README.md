@@ -6,7 +6,7 @@
 
 ## Pipeline Overview
 
-1. **Stage 1 — Wireless Microphone Allocation Optimizer (`optimize_mics.py`):** Uses a frequency-aware greedy constructor and multi-pass simulated annealing to assign wireless channels across every act and scene—minimizing physical pack swaps, maximizing dressing turnaround buffers, locking leads onto dedicated lower channels, and exporting paired `.csv` and styled `.xlsx` paperwork.
+1. **Stage 1 — Wireless Microphone Allocation Optimizer (`optimize_mics.py`):** Uses a frequency-aware greedy constructor and multi-pass simulated annealing to assign wireless channels across every act and scene—minimizing physical pack swaps, maximizing dressing turnaround buffers, locking leads onto dedicated lower channels, and exporting the master `.csv` plus three styled `.xlsx` operational workbooks.
 
 
 2. **Stage 2 — Behringer WING Show & Snippet Generator (`csv_to_wing_show.py`):** Converts the master tracking chart and show breakdown into a native Behringer WING / Wing-Edit `showfile.1` (`.show`) playlist and sequential `.snip` files with scene-specific character scribble strips, color-coded stage status, and dynamic **USER 1** custom fader banks.
@@ -221,7 +221,7 @@ A Markdown script containing Act/Scene headings (`# Act 1`, `## Scene 2`, `### A
 
 ### Generated Operational Deliverables
 
-Running `optimize_mics.py` produces three paired `.csv` and styled Excel (`.xlsx`) operational deliverables:
+Running `optimize_mics.py` produces the master `.csv` tracking sheet (used by Stages 2 and 3) plus three styled Excel (`.xlsx`) operational deliverables:
 
 #### 1. Master Sound Tracking Sheet (`mic_tracking_sheet.csv` / `.xlsx`)
 
@@ -249,7 +249,7 @@ Designed for the Front-of-House (FOH) sound engineer:
 
 
 
-#### 2. Backstage Handoff & Quick-Change Cue Sheet (`backstage_mic_handoffs.csv` / `.xlsx`)
+#### 2. Backstage Handoff & Quick-Change Cue Sheet (`backstage_mic_handoffs.xlsx`)
 
 Designed for A2s and backstage wardrobe dressers:
 
@@ -259,11 +259,11 @@ Designed for A2s and backstage wardrobe dressers:
 * Displays **`REMOVE FROM`**, **`Remove`**, **`ATTACH TO`**, **`MUST BE ON BY Scene`**, and a **`Urgency Alert`** (`⚡ QUICK CHANGE`, `⏱️ Standard Swap`, `☕ Intermission Swap`)
 
 
-* **Gender Color Coding:** In `.xlsx`, actor cells are shaded **Sky Blue** for Guys and **Rose Pink** for Girls so each tech crew can spot their handoffs immediately.
+* **Gender Color Coding:** Actor cells are shaded **Sky Blue** for Guys and **Rose Pink** for Girls so each tech crew can spot their handoffs immediately.
 
 
 
-#### 3. Top-of-Show / Pre-Show Rigging Preset (`top_of_show_preset.csv` / `.xlsx`)
+#### 3. Top-of-Show / Pre-Show Rigging Preset (`top_of_show_preset.xlsx`)
 
 Designed for half-hour pre-show rigging and line checks:
 
@@ -305,30 +305,15 @@ python optimize_mics.py show_data.json \
 | `--passes` | `8` | Number of independent simulated annealing restarts.
 
  |
-| `--iters` | `3500` | Optimization iterations per annealing pass.
-
- |
-| `--perf-days` | `Tech,Sat,Mon,Tues,Wed,Thurs,Frid,Sat,Sat` | Comma-separated performance check-off columns for the Top-of-Show sheets.
-
- |
-| `--output` | `mic_tracking_sheet.csv` | Output path for the Master Sound Tracking CSV.
-
- |
-| `--output-xlsx` | `mic_tracking_sheet.xlsx` | Output path for the Master Sound Tracking Excel workbook.
-
- |
-| `--top-csv` | `top_of_show_preset.csv` | Output path for the Top-of-Show Preset CSV.
-
- |
-| `--top-xlsx` | `top_of_show_preset.xlsx` | Output path for the Top-of-Show Preset Excel workbook (`Guys` & `Girls` tabs).
-
- |
-| `--handoffs-csv` | `backstage_mic_handoffs.csv` | Output path for the Backstage Handoffs CSV.
-
- |
-| `--handoffs-xlsx` | `backstage_mic_handoffs.xlsx` | Output path for the Backstage Handoffs Excel workbook.
-
- |
+| `--iters` | `3500` | Optimization iterations per annealing pass. |
+| `--seed` | `None` | Optional RNG seed for reproducible simulated annealing runs. |
+| `--version` | `None` | Optional build version label (e.g., `v4`) embedded in subtitles, print footers, and workbook metadata. |
+| `--note` | `""` | Optional revision note embedded alongside version metadata. |
+| `--perf-days` | `Tech,Sat,Mon,Tues,Wed,Thurs,Frid,Sat,Sat` | Comma-separated performance check-off columns for the Top-of-Show sheets. |
+| `--output` | `mic_tracking_sheet.csv` | Output path for the Master Sound Tracking CSV. |
+| `--output-xlsx` | `mic_tracking_sheet.xlsx` | Output path for the Master Sound Tracking Excel workbook. |
+| `--top-xlsx` | `top_of_show_preset.xlsx` | Output path for the Top-of-Show Preset Excel workbook (`Guys` & `Girls` tabs). |
+| `--handoffs-xlsx` | `backstage_mic_handoffs.xlsx` | Output path for the Backstage Handoffs Excel workbook. |
 
 ---
 
@@ -403,15 +388,9 @@ python csv_to_wing_show.py mic_tracking_sheet.csv show_data.json \
 | `--group-config` | `layer_groups.json` | Optional JSON file defining custom fader group ordering.
 
  |
-| `--init-snap` | `None` | Optional base console snapshot (e.g., `init.snap`) to place as Scene 1.
-
- |
-| `--template-show` | `None` | Optional console-saved `.show` file used to clone exact firmware path/JSON formatting.
-
- |
-| `--delta-only` | `False` | Only write channel updates in scenes where an actor swap occurs (instead of full-state scenes).
-
- |
+| `--init-snap` | `None` | Optional base console snapshot (e.g., `init.snap`) to place as Scene 1. |
+| `--version` | `None` | Optional build version label (e.g., `v4`) appended to the `.show` filename and embedded in `00_SOUNDCHECK` cue info. |
+| `--note` | `""` | Optional revision note embedded in `00_SOUNDCHECK` cue info. |
 
 ### Loading onto the Behringer WING
 
@@ -473,9 +452,31 @@ python annotate_script_mics.py path/to/script.md \
 | `--csv` | `mic_tracking_sheet.csv` | Path to the microphone tracking CSV file.
 
  |
-| `--output` | `script_with_mics.md` | Output path for the annotated Markdown script.
+| `--output` | `script_with_mics.md` | Output path for the annotated Markdown script. |
+| `--version` | `None` | Optional build version label (e.g., `v4`) embedded at the top of the annotated script (idempotent on re-runs). |
+| `--note` | `""` | Optional revision note embedded alongside version metadata. |
 
- |
+---
+
+## Automated Versioned Pipeline (`run_lavs.sh`)
+
+Run all stages together reading from `Inputs/` and writing into auto-incrementing versioned directories (`Outputs/v1/`, `Outputs/v2/`, ... + `Outputs/latest` symlink + `Outputs/manifest.json`):
+
+```bash
+./run_lavs.sh \
+  --inputs Inputs \
+  --outputs Outputs \
+  --show-name SCROOGE \
+  --mics 28 \
+  --passes 75 \
+  --iters 5000 \
+  --note "Initial Scrooge build"
+```
+
+* Auto-detects `Inputs/layer_groups.json`, `Inputs/cast_gender.json`, and `Inputs/script_cut.md` (or `*script*.md`) when present.
+* Stamps the version label, timestamp, and `--note` into CSV/Excel subtitles, Excel print footers & workbook properties, the Behringer WING `.show` filename & Soundcheck cue, and the annotated Markdown header.
+* Saves an exact `show_data.json` snapshot and `build_info.json` (including RNG `--seed` and SHA-256 input hashes) inside each `Outputs/vN/` directory.
+* Pass `--overwrite` to re-run into the latest version folder without incrementing, or `--version <label>` to set an explicit version tag.
 
 ### Example Input & Annotated Output
 

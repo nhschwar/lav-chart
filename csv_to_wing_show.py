@@ -379,7 +379,9 @@ def build_wing_snippet(ch_updates, ordered_active_mics, created_ts, bank_size=24
     }
 
 
-def build_wing_show_file(show_name, generated_snips, created_ts, init_snap=None):
+def build_wing_show_file(
+    show_name, generated_snips, created_ts, init_snap=None, version=None, note=""
+):
     """Builds a native Behringer WING / Wing-Edit 'showfile.1' JSON structure."""
     scenes_dict = {}
     cue_num = 1
@@ -398,13 +400,23 @@ def build_wing_show_file(show_name, generated_snips, created_ts, init_snap=None)
         }
         cue_num += 1
 
-    for snip in generated_snips:
+    for idx, snip in enumerate(generated_snips):
+        info = f"{snip['scene_label']} ({len(snip['user1_mics'])} active on USR1)"
+        if idx == 0 and (version or note):
+            meta_parts = []
+            if version:
+                meta_parts.append(str(version))
+            meta_parts.append(created_ts[:10])
+            if note:
+                meta_parts.append(note.strip()[:48])
+            info = f"{snip['scene_label']} [{' | '.join(meta_parts)}]"
+
         scenes_dict[str(cue_num)] = {
             "name": snip["name"],
             "skip": False,
             "link": False,
             "type": "SNIP",
-            "info": f"{snip['scene_label']} ({len(snip['user1_mics'])} active on USR1)",
+            "info": info,
             "tag": "",
             "midi_tx": "",
             "file": snip["file"],
@@ -442,6 +454,8 @@ def generate_wing_files(
     bank_size=24,
     init_snap=None,
     group_config_path=None,
+    version=None,
+    note="",
 ):
     scene_char_map = load_show_json_map(json_path) if json_path else None
     group_config = load_group_config(group_config_path)
@@ -558,14 +572,27 @@ def generate_wing_files(
         })
 
     # 3. MASTER SHOW FILE (.show)
-    show_data = build_wing_show_file(show_name, generated_snips, created_ts, init_snap=init_snap)
-    show_filepath = os.path.join(output_dir, f"{show_name}.show")
+    effective_show_name = show_name
+    if version:
+        safe_ver = re.sub(r"[^A-Za-z0-9._-]+", "_", str(version).strip())
+        if safe_ver and not effective_show_name.endswith(f"_{safe_ver}"):
+            effective_show_name = f"{effective_show_name}_{safe_ver}"
+
+    show_data = build_wing_show_file(
+        effective_show_name,
+        generated_snips,
+        created_ts,
+        init_snap=init_snap,
+        version=version,
+        note=note,
+    )
+    show_filepath = os.path.join(output_dir, f"{effective_show_name}.show")
     with open(show_filepath, "w", encoding="utf-8") as f:
         json.dump(show_data, f, indent=2)
 
     print(
-        f"Generated {len(generated_snips)} Snippets + '{show_name}.show' "
-        f"({show_data['scenes']['count']} scenes) in ./{output_dir}/"
+        f"Generated {len(generated_snips)} Snippets + '{effective_show_name}.show' "
+        f"({show_data['scenes']['count']} scenes) in {output_dir}/"
     )
 
 
@@ -601,6 +628,16 @@ if __name__ == "__main__":
         default="layer_groups.json",
         help="Optional JSON file defining group_order and character_to_group for custom fader ordering",
     )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Optional version label (e.g., 'v4') embedded in .show filename and Soundcheck cue info",
+    )
+    parser.add_argument(
+        "--note",
+        default="",
+        help="Optional revision note embedded in Soundcheck cue info",
+    )
     args = parser.parse_args()
     generate_wing_files(
         args.csv_file,
@@ -611,4 +648,6 @@ if __name__ == "__main__":
         args.bank_size,
         args.init_snap,
         args.group_config,
+        args.version,
+        args.note,
     )

@@ -9,6 +9,7 @@ Solves resource-constrained wireless microphone assignments and produces operati
 import argparse
 from collections import Counter, defaultdict
 import csv
+from datetime import datetime
 import json
 import math
 import os
@@ -626,17 +627,59 @@ def build_actor_stints(scenes, assignment, num_mics):
 
 
 # -----------------------------------------------------------------------------
-# 6. Deliverable 1: Master Sound Tracking Sheet (CSV & Styled XLSX)
+# 6. Version Metadata & Deliverable 1: Master Sound Tracking Sheet (CSV & XLSX)
 # -----------------------------------------------------------------------------
+def ensure_parent_dir(filepath):
+    """Creates parent directories for an output file if needed."""
+    parent = os.path.dirname(os.path.abspath(filepath))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def format_version_banner(version=None, timestamp=None, note=""):
+    """Formats a concise version/timestamp/note subtitle string."""
+    ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M")
+    parts = []
+    if version:
+        parts.append(f"Version {version}")
+    parts.append(f"Generated {ts}")
+    if note and note.strip():
+        parts.append(note.strip())
+    return " — ".join(parts)
+
+
+def apply_workbook_version_metadata(wb, version=None, timestamp=None, note=""):
+    """Embeds version metadata into Excel workbook properties and print footers."""
+    banner = format_version_banner(version=version, timestamp=timestamp, note=note)
+    if version:
+        wb.properties.version = str(version)
+    wb.properties.description = banner
+    if note and note.strip():
+        wb.properties.comments = note.strip()
+
+    for ws in wb.worksheets:
+        ws.oddFooter.left.text = banner
+        ws.oddFooter.right.text = "Page &P of &N"
+
+
 def export_master_tracking_csv(
-    scenes, actor_stints, num_mics, output_filename="mic_tracking_sheet.csv"
+    scenes,
+    actor_stints,
+    num_mics,
+    output_filename="mic_tracking_sheet.csv",
+    version=None,
+    note="",
+    timestamp=None,
 ):
     """Exports master matrix with repeated mic rows for shared channels."""
+    ensure_parent_dir(output_filename)
     num_scenes = len(scenes)
+    banner = format_version_banner(version=version, timestamp=timestamp, note=note)
 
     with open(output_filename, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["MASTER THEATRICAL SOUND TRACKING SHEET"])
+        writer.writerow([banner])
         writer.writerow([
             "Notation: 'X' = Onstage performing | '-' = Mic held on actor |"
             " [CHANGE] = Mic de-rigging/transfer window | Blank = Mic not with"
@@ -670,19 +713,29 @@ def export_master_tracking_csv(
 
     print(f"Exported Master Tracking CSV: {output_filename}")
 
+
 def export_master_tracking_excel(
-    scenes, actor_stints, num_mics, output_filename="mic_tracking_sheet.xlsx"
+    scenes,
+    actor_stints,
+    num_mics,
+    output_filename="mic_tracking_sheet.xlsx",
+    version=None,
+    note="",
+    timestamp=None,
 ):
     """Exports master matrix into a styled Excel workbook with odd/even mic row striping."""
     if not OPENPYXL_AVAILABLE:
         return
 
+    ensure_parent_dir(output_filename)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Master Mic Matrix"
     ws.views.sheetView[0].showGridLines = True
 
-    # Palette - Headers
+    # Palette - Title & Headers
+    font_title = Font(name="Calibri", size=14, bold=True, color="1F497D")
+    font_subtitle = Font(name="Calibri", size=10, italic=True, color="595959")
     font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     fill_header = PatternFill(
         start_color="1F497D", end_color="1F497D", fill_type="solid"
@@ -719,21 +772,28 @@ def export_master_tracking_excel(
         bottom=Side(style="thin", color="D9D9D9"),
     )
 
+    banner = format_version_banner(version=version, timestamp=timestamp, note=note)
+    ws.append(["MASTER MIC TRACKING SHEET"])
+    ws.cell(row=1, column=1).font = font_title
+    ws.append([banner])
+    ws.cell(row=2, column=1).font = font_subtitle
+
     headers = (
         ["Lav #", "Actor Name", "Character(s)"]
         + [sc["label"] for sc in scenes]
     )
     ws.append(headers)
 
+    header_row = 3
     for col_idx in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_idx)
+        cell = ws.cell(row=header_row, column=col_idx)
         cell.font = font_header
         cell.fill = fill_header
         cell.alignment = Alignment(
             horizontal="center", vertical="center", wrap_text=True
         )
 
-    for r_idx, stint in enumerate(actor_stints, start=2):
+    for r_idx, stint in enumerate(actor_stints, start=header_row + 1):
         row_vals = [
             f"{stint['mic']}",
             stint["actor"],
@@ -787,12 +847,17 @@ def export_master_tracking_excel(
                 # Idle / unassigned scenes adopt the row's alternating odd/even background
                 cell.fill = row_base_fill
 
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or "")) for cell in col)
-        col_letter = get_column_letter(col[0].column)
+    for col_idx in range(1, len(headers) + 1):
+        col_cells = [
+            ws.cell(row=r, column=col_idx)
+            for r in range(header_row, ws.max_row + 1)
+        ]
+        max_len = max(len(str(cell.value or "")) for cell in col_cells)
+        col_letter = get_column_letter(col_idx)
         ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 32)
 
-    ws.freeze_panes = "D2"
+    ws.freeze_panes = "D4"
+    apply_workbook_version_metadata(wb, version=version, timestamp=timestamp, note=note)
     wb.save(output_filename)
     print(f"Exported Master Tracking Excel: {output_filename}")
 
@@ -875,7 +940,11 @@ def extract_backstage_handoffs(scenes, assignment, num_mics, actor_gender):
     return handoffs
 
 def export_backstage_handoffs_excel(
-    handoffs, output_filename="backstage_mic_handoffs.xlsx"
+    handoffs,
+    output_filename="backstage_mic_handoffs.xlsx",
+    version=None,
+    note="",
+    timestamp=None,
 ):
     """
     Exports Backstage Handoff sheet with Blue background fill for Guys' names
@@ -884,6 +953,7 @@ def export_backstage_handoffs_excel(
     if not OPENPYXL_AVAILABLE:
         return
 
+    ensure_parent_dir(output_filename)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Backstage Handoffs"
@@ -930,8 +1000,10 @@ def export_backstage_handoffs_excel(
         bottom=Side(style="thin", color="D9D9D9"),
     )
 
+    banner = format_version_banner(version=version, timestamp=timestamp, note=note)
     ws.append(["BACKSTAGE MIC HANDOFFS"])
     ws.cell(row=1, column=1).font = font_title
+    ws.append([banner])
     ws.cell(row=2, column=1).font = font_subtitle
     ws.append([])
 
@@ -1038,12 +1110,17 @@ def export_backstage_handoffs_excel(
                 alert_c.fill = fill_standard
                 alert_c.font = font_standard
 
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or "")) for cell in col)
-        col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 25)
+    for col_idx in range(1, len(headers) + 1):
+        col_cells = [
+            ws.cell(row=r, column=col_idx)
+            for r in range(4, ws.max_row + 1)
+        ]
+        max_len = max(len(str(cell.value or "")) for cell in col_cells)
+        col_letter = get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 30)
 
     ws.freeze_panes = "A5"
+    apply_workbook_version_metadata(wb, version=version, timestamp=timestamp, note=note)
     wb.save(output_filename)
     print(f"Exported Backstage Handoffs Excel (Blue/Pink Gender Fills): {output_filename}")
 
@@ -1131,7 +1208,13 @@ def extract_top_of_show_presets(
     return guys_list, girls_list
 
 def export_top_of_show_excel(
-    guys_list, girls_list, perf_days, output_filename="top_of_show_preset.xlsx"
+    guys_list,
+    girls_list,
+    perf_days,
+    output_filename="top_of_show_preset.xlsx",
+    version=None,
+    note="",
+    timestamp=None,
 ):
     """
     Exports Top-of-Show Preset Excel workbook with TWO sheets ('Guys' and 'Girls'),
@@ -1144,6 +1227,7 @@ def export_top_of_show_excel(
     if not OPENPYXL_AVAILABLE:
         return
 
+    ensure_parent_dir(output_filename)
     wb = openpyxl.Workbook()
     # Remove default sheet; we'll create 'Guys' and 'Girls'
     wb.remove(wb.active)
@@ -1258,6 +1342,7 @@ def export_top_of_show_excel(
 
         ws.freeze_panes = "C2"
 
+    apply_workbook_version_metadata(wb, version=version, timestamp=timestamp, note=note)
     wb.save(output_filename)
     print(f"Exported Top-of-Show Preset Excel with 'Guys' & 'Girls' tabs: {output_filename}")
 
@@ -1299,6 +1384,22 @@ def main():
         help="Iterations per annealing pass (default: 3500)",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional random seed for reproducible simulated annealing results",
+    )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Optional build version label (e.g., 'v4') embedded in output subtitles & metadata",
+    )
+    parser.add_argument(
+        "--note",
+        default="",
+        help="Optional revision note embedded alongside version metadata",
+    )
+    parser.add_argument(
         "--perf-days",
         default="Tech,Sat,Mon,Tues,Wed,Thurs,Frid,Sat,Sat",
         help="Comma-separated performance columns for the Top-of-Show check-off sheets",
@@ -1326,6 +1427,11 @@ def main():
 
     args = parser.parse_args()
 
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+
     try:
         with open(args.json_file, "r", encoding="utf-8") as f:
             show_data = json.load(f)
@@ -1336,8 +1442,9 @@ def main():
     external_gender_map = load_cast_gender_file(args.cast_file)
     perf_days = [d.strip() for d in args.perf_days.split(",") if d.strip()]
 
+    version_tag = f" [{args.version}]" if args.version else ""
     print(
-        f"Loaded '{args.json_file}'. Optimizing for {args.mics} mic packs across"
+        f"Loaded '{args.json_file}'{version_tag}. Optimizing for {args.mics} mic packs across"
         f" {args.passes} passes ({args.iters} iters/pass)..."
     )
     (
@@ -1364,10 +1471,24 @@ def main():
 
     # Deliverable 1: Master Tracking Sheet
     stints = build_actor_stints(scenes, best_assignment, args.mics)
-    export_master_tracking_csv(scenes, stints, args.mics, args.output)
+    export_master_tracking_csv(
+        scenes,
+        stints,
+        args.mics,
+        args.output,
+        version=args.version,
+        note=args.note,
+        timestamp=run_timestamp,
+    )
     if OPENPYXL_AVAILABLE:
         export_master_tracking_excel(
-            scenes, stints, args.mics, args.output_xlsx
+            scenes,
+            stints,
+            args.mics,
+            args.output_xlsx,
+            version=args.version,
+            note=args.note,
+            timestamp=run_timestamp,
         )
 
     # Deliverable 2: Backstage Handoffs & Quick Changes (Blue = Guys, Pink = Girls)
@@ -1375,7 +1496,13 @@ def main():
         scenes, best_assignment, args.mics, actor_gender
     )
     if OPENPYXL_AVAILABLE:
-        export_backstage_handoffs_excel(handoffs, args.handoffs_xlsx)
+        export_backstage_handoffs_excel(
+            handoffs,
+            args.handoffs_xlsx,
+            version=args.version,
+            note=args.note,
+            timestamp=run_timestamp,
+        )
 
     # Deliverable 3: Top-of-Show / Pre-Show Presets ('Guys' and 'Girls' sheets)
     guys_list, girls_list = extract_top_of_show_presets(
@@ -1383,7 +1510,19 @@ def main():
     )
     if OPENPYXL_AVAILABLE:
         export_top_of_show_excel(
-            guys_list, girls_list, perf_days, args.top_xlsx
+            guys_list,
+            girls_list,
+            perf_days,
+            args.top_xlsx,
+            version=args.version,
+            note=args.note,
+            timestamp=run_timestamp,
+        )
+
+    if not OPENPYXL_AVAILABLE:
+        print(
+            "Warning: openpyxl is not installed; skipped .xlsx exports. "
+            "Install it with 'pip install openpyxl' to generate Excel workbooks."
         )
 
     print(
