@@ -16,6 +16,8 @@ ITERS=5000
 PERF_DAYS=""
 STYLE="character"
 CAST_FILE=""
+CAST_LIST=""
+OVERRIDES_FILE=""
 GROUP_CONFIG=""
 INIT_SNAP=""
 SCRIPT_MD=""
@@ -23,6 +25,8 @@ VERSION_LABEL=""
 OVERWRITE=0
 NOTE=""
 SEED=""
+SKIP_PARSE=0
+STRICT_PARSE=0
 SKIP_WING=0
 SKIP_ANNOTATE=0
 
@@ -39,6 +43,8 @@ Options:
   --iters N            Iterations per annealing pass (default: 5000)
   --perf-days LIST     Comma-separated check-off columns for Top-of-Show sheet
   --style STYLE        WING scribble style: character|char_actor|actor_first|actor_full
+  --cast-list PATH     Markdown/text cast list (auto-detects <inputs>/cast_list.md or .txt)
+  --overrides PATH     Optional overrides.json (auto-detects <inputs>/overrides.json)
   --cast-file PATH     Optional gender JSON (auto-detects <inputs>/cast_gender.json)
   --group-config PATH  Optional WING layer groups JSON (auto-detects <inputs>/layer_groups.json)
   --init-snap PATH     Optional WING initial .snap file
@@ -47,6 +53,8 @@ Options:
   --overwrite          Overwrite the latest version folder instead of incrementing
   --note TEXT          Revision note embedded in subtitles, metadata, and manifest.json
   --seed INT           Random seed for reproducible optimization (auto-generated if omitted)
+  --skip-parse         Skip Stage 0c (build_show_data.py) and use <inputs>/show_data.json
+  --strict-parse       Fail Stage 0c if script contains unmatched speaker cues
   --skip-wing          Skip Stage 2 (Behringer WING show generation)
   --skip-annotate      Skip Stage 3 (Markdown script annotation)
   -h, --help           Show this help message
@@ -63,6 +71,8 @@ while [[ $# -gt 0 ]]; do
     --iters)        ITERS="$2"; shift 2 ;;
     --perf-days)    PERF_DAYS="$2"; shift 2 ;;
     --style)        STYLE="$2"; shift 2 ;;
+    --cast-list)    CAST_LIST="$2"; shift 2 ;;
+    --overrides)    OVERRIDES_FILE="$2"; shift 2 ;;
     --cast-file)    CAST_FILE="$2"; shift 2 ;;
     --group-config) GROUP_CONFIG="$2"; shift 2 ;;
     --init-snap)    INIT_SNAP="$2"; shift 2 ;;
@@ -71,6 +81,8 @@ while [[ $# -gt 0 ]]; do
     --overwrite)    OVERWRITE=1; shift ;;
     --note)         NOTE="$2"; shift 2 ;;
     --seed)         SEED="$2"; shift 2 ;;
+    --skip-parse)   SKIP_PARSE=1; shift ;;
+    --strict-parse) STRICT_PARSE=1; shift ;;
     --skip-wing)    SKIP_WING=1; shift ;;
     --skip-annotate) SKIP_ANNOTATE=1; shift ;;
     -h|--help)      usage; exit 0 ;;
@@ -104,6 +116,18 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 # Auto-detect optional inputs when not explicitly passed
+if [[ -z "$CAST_LIST" ]]; then
+  if [[ -f "${INPUT_DIR}/cast_list.md" ]]; then
+    CAST_LIST="${INPUT_DIR}/cast_list.md"
+  elif [[ -f "${INPUT_DIR}/cast_list.txt" ]]; then
+    CAST_LIST="${INPUT_DIR}/cast_list.txt"
+  fi
+fi
+
+if [[ -z "$OVERRIDES_FILE" && -f "${INPUT_DIR}/overrides.json" ]]; then
+  OVERRIDES_FILE="${INPUT_DIR}/overrides.json"
+fi
+
 if [[ -z "$CAST_FILE" && -f "${INPUT_DIR}/cast_gender.json" ]]; then
   CAST_FILE="${INPUT_DIR}/cast_gender.json"
 fi
@@ -170,13 +194,7 @@ mkdir -p "$RUN_DIR"
 
 SHOW_JSON_SRC="${INPUT_DIR}/show_data.json"
 SHOW_JSON_RUN="${RUN_DIR}/show_data.json"
-
-if [[ ! -f "$SHOW_JSON_SRC" ]]; then
-  echo "Error: Required input '${SHOW_JSON_SRC}' not found." >&2
-  exit 1
-fi
-
-cp "$SHOW_JSON_SRC" "$SHOW_JSON_RUN"
+PARSED_FROM_SCRIPT=0
 
 TRACKING_CSV="${RUN_DIR}/mic_tracking_sheet.csv"
 TRACKING_XLSX="${RUN_DIR}/mic_tracking_sheet.xlsx"
@@ -195,6 +213,35 @@ if [[ -n "$NOTE" ]]; then
   echo "  Note:      ${NOTE}"
 fi
 echo "============================================================"
+
+# Stage 0c: Build show_data.json from script_cut.md + cast_list (or fall back to Inputs/show_data.json)
+if [[ "$SKIP_PARSE" -eq 0 && -n "$SCRIPT_MD" && -f "$SCRIPT_MD" && -n "$CAST_LIST" && -f "$CAST_LIST" ]]; then
+  BUILD_ARGS=(
+    "${SCRIPT_DIR}/build_show_data.py"
+    "$SCRIPT_MD"
+    "$CAST_LIST"
+    --output "$SHOW_JSON_RUN"
+  )
+  if [[ -n "$OVERRIDES_FILE" && -f "$OVERRIDES_FILE" ]]; then
+    BUILD_ARGS+=(--overrides "$OVERRIDES_FILE")
+  fi
+  if [[ "$STRICT_PARSE" -eq 1 ]]; then
+    BUILD_ARGS+=(--strict)
+  fi
+
+  echo ""
+  echo "[Stage 0c] Building show_data.json from script + cast list..."
+  "$PYTHON" "${BUILD_ARGS[@]}"
+  PARSED_FROM_SCRIPT=1
+else
+  if [[ ! -f "$SHOW_JSON_SRC" ]]; then
+    echo "Error: Neither (script + cast_list) nor '${SHOW_JSON_SRC}' was found in '${INPUT_DIR}'." >&2
+    exit 1
+  fi
+  cp "$SHOW_JSON_SRC" "$SHOW_JSON_RUN"
+  echo ""
+  echo "[Stage 0c] Using existing show_data.json (${SHOW_JSON_SRC})."
+fi
 
 # Stage 1: Wireless Microphone Allocation Optimizer
 OPT_ARGS=(
@@ -281,7 +328,7 @@ else
 fi
 
 # Write build_info.json, update Outputs/manifest.json, and update Outputs/latest symlink
-"$PYTHON" - "$OUTPUT_DIR" "$RUN_DIR" "$VERSION_LABEL" "$SHOW_NAME" "$MICS" "$PASSES" "$ITERS" "$SEED" "$NOTE" "$SHOW_JSON_SRC" "$CAST_FILE" "$GROUP_CONFIG" "$SCRIPT_MD" "$ANNOTATED_PRODUCED" <<'PY'
+"$PYTHON" - "$OUTPUT_DIR" "$RUN_DIR" "$VERSION_LABEL" "$SHOW_NAME" "$MICS" "$PASSES" "$ITERS" "$SEED" "$NOTE" "$SHOW_JSON_SRC" "$CAST_FILE" "$CAST_LIST" "$OVERRIDES_FILE" "$GROUP_CONFIG" "$SCRIPT_MD" "$ANNOTATED_PRODUCED" "$PARSED_FROM_SCRIPT" <<'PY'
 from datetime import datetime
 import hashlib
 import json
@@ -300,9 +347,12 @@ import sys
     note,
     show_json_src,
     cast_file,
+    cast_list,
+    overrides_file,
     group_config,
     script_md,
     annotated_produced,
+    parsed_from_script,
 ) = sys.argv[1:]
 
 def sha256_file(path):
@@ -317,12 +367,17 @@ def sha256_file(path):
 timestamp = datetime.now().isoformat(timespec="seconds")
 
 inputs_meta = {}
-for key, path in [
-    ("show_data", show_json_src),
+input_candidates = [
     ("cast_file", cast_file),
+    ("cast_list", cast_list),
+    ("overrides", overrides_file),
     ("group_config", group_config),
     ("script_md", script_md),
-]:
+]
+if parsed_from_script != "1":
+    input_candidates.insert(0, ("show_data", show_json_src))
+
+for key, path in input_candidates:
     if path and os.path.isfile(path):
         inputs_meta[key] = {
             "path": os.path.abspath(path),
@@ -341,6 +396,7 @@ build_info = {
     "timestamp": timestamp,
     "show_name": show_name,
     "note": note,
+    "parsed_from_script": parsed_from_script == "1",
     "parameters": {
         "mics": int(mics),
         "passes": int(passes),
