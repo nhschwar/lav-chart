@@ -21,6 +21,8 @@ OVERRIDES_FILE=""
 GROUP_CONFIG=""
 INIT_SNAP=""
 SCRIPT_MD=""
+RAW_SCRIPT_MD=""
+RUN_STRIP=0
 VERSION_LABEL=""
 OVERWRITE=0
 NOTE=""
@@ -43,6 +45,8 @@ Options:
   --iters N            Iterations per annealing pass (default: 5000)
   --perf-days LIST     Comma-separated check-off columns for Top-of-Show sheet
   --style STYLE        WING scribble style: character|char_actor|actor_first|actor_full
+  --raw-script PATH    Raw Markdown script for --strip (auto-detects <inputs>/script_raw.md)
+  --strip              Run interactive script stripper (strip_script.py) before building
   --cast-list PATH     Markdown/text cast list (auto-detects <inputs>/cast_list.md or .txt)
   --overrides PATH     Optional overrides.json (auto-detects <inputs>/overrides.json)
   --cast-file PATH     Optional gender JSON (auto-detects <inputs>/cast_gender.json)
@@ -71,6 +75,8 @@ while [[ $# -gt 0 ]]; do
     --iters)        ITERS="$2"; shift 2 ;;
     --perf-days)    PERF_DAYS="$2"; shift 2 ;;
     --style)        STYLE="$2"; shift 2 ;;
+    --raw-script)   RAW_SCRIPT_MD="$2"; shift 2 ;;
+    --strip)        RUN_STRIP=1; shift ;;
     --cast-list)    CAST_LIST="$2"; shift 2 ;;
     --overrides)    OVERRIDES_FILE="$2"; shift 2 ;;
     --cast-file)    CAST_FILE="$2"; shift 2 ;;
@@ -136,12 +142,28 @@ if [[ -z "$GROUP_CONFIG" && -f "${INPUT_DIR}/layer_groups.json" ]]; then
   GROUP_CONFIG="${INPUT_DIR}/layer_groups.json"
 fi
 
+if [[ -z "$RAW_SCRIPT_MD" && -f "${INPUT_DIR}/script_raw.md" ]]; then
+  RAW_SCRIPT_MD="${INPUT_DIR}/script_raw.md"
+fi
+
+# Optional Stage 0b: Interactive script stripping (runs before creating a versioned output folder)
+if [[ "$RUN_STRIP" -eq 1 ]]; then
+  if [[ -z "$RAW_SCRIPT_MD" || ! -f "$RAW_SCRIPT_MD" ]]; then
+    echo "Error: --strip requested, but no raw script found (expected '${INPUT_DIR}/script_raw.md' or --raw-script)." >&2
+    exit 1
+  fi
+  TARGET_CUT="${SCRIPT_MD:-${INPUT_DIR}/script_cut.md}"
+  echo "[Stage 0b] Launching interactive script stripper (${RAW_SCRIPT_MD} -> ${TARGET_CUT})..."
+  "$PYTHON" "${SCRIPT_DIR}/strip_script.py" "$RAW_SCRIPT_MD" --output "$TARGET_CUT"
+  SCRIPT_MD="$TARGET_CUT"
+fi
+
 if [[ -z "$SCRIPT_MD" ]]; then
   if [[ -f "${INPUT_DIR}/script_cut.md" ]]; then
     SCRIPT_MD="${INPUT_DIR}/script_cut.md"
   else
     for candidate in "${INPUT_DIR}"/*script*.md; do
-      if [[ -f "$candidate" ]]; then
+      if [[ -f "$candidate" && "$candidate" != "${INPUT_DIR}/script_raw.md" ]]; then
         SCRIPT_MD="$candidate"
         break
       fi
